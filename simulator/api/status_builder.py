@@ -21,5 +21,5 @@ def build_irrigation_status(system: AgriSystem) -> dict:
             "lightValue": round(snapshot.lightValue, 2),
         },
         "actuator": system.actuator.status.to_dict(now_ms),
-        "module": system.irrigation.status(),
+        "modules": {"irrigation": system.irrigation.status()},
     }

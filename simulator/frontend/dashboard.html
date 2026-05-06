@@ -14,7 +14,7 @@
   --blue:#60a5fa;--purple:#a78bfa;--yellow:#facc15;
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
-.grid{display:grid;grid-template-rows:56px 1fr 1fr 42px;grid-template-columns:1fr 1fr;height:100vh;gap:8px;padding:8px}
+.grid{display:grid;grid-template-rows:56px auto 1fr auto 42px;grid-template-columns:1fr 1fr;height:100vh;gap:8px;padding:8px}
 
 /* 顶部标题栏 */
 .header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:8px;border:1px solid var(--border)}
@@ -25,7 +25,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 #btn-fullscreen:hover{border-color:var(--accent);color:var(--accent)}
 
 /* 传感器大数字区 */
-.sensors{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.sensors{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,1fr);gap:8px;min-height:100px}
 .sensor-card{background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 12px;position:relative;overflow:hidden}
 .sensor-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
 .sensor-card.temp::before{background:var(--orange)}
@@ -64,7 +64,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .chart-area canvas{flex:1;min-height:0}
 
 /* 下半部分 */
-.bottom{display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
+.bottom{grid-column:1/-1;display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
 .panel{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px}
 .panel h3{font-size:13px;color:var(--muted);margin-bottom:10px;font-weight:500;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:6px}
 
@@ -96,6 +96,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .footer-text.warn{color:var(--orange)}
 .footer-text.critical{color:var(--red)}
 .footer-time{margin-left:auto;color:var(--muted);font-size:12px;flex-shrink:0}
+
+@media(max-width:1200px){
+  .sensors{grid-template-columns:repeat(3,1fr)}
+  .sensor-value{font-size:24px}
+  .ring-wrap{width:60px;height:60px}
+  .ring-wrap svg{width:60px;height:60px}
+}
+@media(max-width:800px){
+  .grid{grid-template-columns:1fr;grid-template-rows:56px auto auto auto auto 42px}
+  .sensors{grid-template-columns:repeat(2,1fr)}
+  .bottom{grid-template-columns:1fr}
+  .header-right{gap:12px;font-size:11px}
+  .header h1{font-size:16px}
+}
 </style>
 </head>
 <body>
@@ -262,21 +276,17 @@ function pushChart(soil,target){
 
 // ── Actuator ──
 function updateActuator(a){
-  const setDot=(id,on)=>{const el=document.getElementById(id);if(el){el.className='act-dot '+(on?'on':'off')}};
-  const setVal=(id,on,txt)=>{const el=document.getElementById(id);if(el){el.className='act-val '+(on?'on':'off');el.textContent=txt||'--'}};
+  const setDot=(id,on)=>{const el=document.getElementById(id);if(el) el.className='act-dot '+(on?'on':'off')};
+  const setVal=(id,on,text)=>{const el=document.getElementById(id);if(el){el.textContent=text;el.className='act-val '+(on?'on':'off')}};
 
   setDot('d-mode',a.autoMode);
-  setVal('v-mode',a.autoMode,'自动','手动');
-  document.getElementById('v-mode').textContent=a.autoMode?'自动':'手动';
-  document.getElementById('v-mode').className='act-val '+(a.autoMode?'on':'off');
+  setVal('v-mode',a.autoMode,a.autoMode?'自动':'手动');
 
   setDot('d-pump',a.pumpOn);
-  document.getElementById('v-pump').textContent=a.pumpOn?'ON':'OFF';
-  document.getElementById('v-pump').className='act-val '+(a.pumpOn?'on':'off');
+  setVal('v-pump',a.pumpOn,a.pumpOn?'ON':'OFF');
 
   setDot('d-valve',a.valveOn);
-  document.getElementById('v-valve').textContent=a.valveOn?'ON':'OFF';
-  document.getElementById('v-valve').className='act-val '+(a.valveOn?'on':'off');
+  setVal('v-valve',a.valveOn,a.valveOn?'ON':'OFF');
 
   const srcMap={idle:'空闲',rule:'规则引擎',learning:'Q-Learning',fusion:'融合决策',manual:'手动',safety:'安全锁定'};
   document.getElementById('v-source').textContent=srcMap[a.source]||a.source||'--';
@@ -284,35 +294,36 @@ function updateActuator(a){
 }
 
 // ── AI Modules ──
-function setAI(id,status,detailId,detail){
+function setAI(id,status,color,detailId,detail){
   const el=document.getElementById(id);
-  if(el){el.textContent=status;el.className='ai-status '+(status==='ON'?'on':'off')}
+  if(el){el.textContent=status;el.style.color=color||'var(--muted)'}
   if(detailId){const d=document.getElementById(detailId);if(d) d.textContent=detail||''}
 }
 
 function updateModules(m){
   // Rule
   const irr=m.irrigation||{};
-  setAI('ai-rule',irr.enabled?'ON':'OFF');
+  setAI('ai-rule',irr.enabled?'ON':'OFF',irr.enabled?'var(--green)':'#6b7280');
   // Anomaly
   const anom=m.anomaly||{};
-  const anomStatus=anom.alertLevelName==='normal'?'正常':anom.alertLevelName==='warning'?'警告':'严重';
-  setAI('ai-anomaly',anomStatus,'ai-anomaly-d','IF='+((anom.iforestScore||0).toFixed(2)));
-  const anomEl=document.getElementById('ai-anomaly');
-  if(anomEl) anomEl.style.color=anom.alertLevelName==='normal'?'var(--green)':anom.alertLevelName==='warning'?'var(--orange)':'var(--red)';
+  const levelName=anom.alertLevelName||'normal';
+  const anomMap={normal:{text:'正常',color:'var(--green)'},warning:{text:'警告',color:'var(--orange)'},critical:{text:'严重',color:'var(--red)'}};
+  const a=anomMap[levelName]||anomMap.normal;
+  setAI('ai-anomaly',a.text,a.color,'ai-anomaly-d','IF='+((anom.iforestScore||0).toFixed(2)));
   // Learning
   const lrn=m.learning||{};
-  setAI('ai-learn',lrn.autoControlEnabled?'ON':'OFF','ai-learn-d','ε='+((lrn.epsilon||0).toFixed(2))+' R='+(lrn.averageReward||0).toFixed(1));
+  setAI('ai-learn',lrn.autoControlEnabled?'ON':'OFF',lrn.autoControlEnabled?'var(--green)':'#6b7280','ai-learn-d','ε='+((lrn.epsilon||0).toFixed(2))+' R='+(lrn.averageReward||0).toFixed(1));
   // Growth
   const grw=m.growth||{};
-  setAI('ai-growth',grw.cropCn||'--','ai-growth-d',(grw.stageNameCn||'')+' Day'+(grw.dayOfGrowth||0));
+  setAI('ai-growth',grw.cropCn||'--','var(--text)','ai-growth-d',(grw.stageNameCn||'')+' Day'+(grw.dayOfGrowth||0));
   // Fusion
   const fus=m.fusion||{};
-  setAI('ai-fusion',fus.autoControlEnabled?'ON':'OFF','ai-fusion-d',fus.decisionName||'--');
+  setAI('ai-fusion',fus.autoControlEnabled?'ON':'OFF',fus.autoControlEnabled?'var(--green)':'#6b7280','ai-fusion-d',fus.decisionName||'--');
   // Plant
   const plt=m.plantDoctor||{};
   const plantStatus=plt.lastDiseaseNameCn||'--';
-  setAI('ai-plant',plt.enabled?'ON':'OFF','ai-plant-d',plantStatus+' '+((plt.lastConfidence||0)*100).toFixed(0)+'%');
+  const plantOk=!plt.lastDiseaseName||plt.lastDiseaseName==='Healthy';
+  setAI('ai-plant',plt.enabled?'ON':'OFF',plt.enabled?'var(--green)':'#6b7280','ai-plant-d',plantStatus+' '+((plt.lastConfidence||0)*100).toFixed(0)+'%');
 }
 
 // ── Alerts ──
@@ -320,14 +331,15 @@ async function refreshAlerts(){
   const d=await api('anomaly/alerts');
   const el=document.getElementById('alert-text');
   const icon=document.getElementById('alert-icon');
-  if(!d||!d.alerts||d.alerts.length===0){
+  if(!d||!d.length){
     el.textContent='系统运行正常';el.className='footer-text ok';icon.textContent='●';icon.style.color='var(--green)';
     return;
   }
-  const latest=d.alerts[d.alerts.length-1];
-  el.textContent='['+latest.level+'] '+latest.message;
-  el.className='footer-text '+(latest.level==='critical'?'critical':'warn');
-  icon.textContent='⚠';icon.style.color=latest.level==='critical'?'var(--red)':'var(--orange)';
+  const latest=d[d.length-1];
+  const lvl=latest.levelName||'warning';
+  el.textContent='['+lvl+'] '+(latest.message||'');
+  el.className='footer-text '+(lvl==='critical'?'critical':'warn');
+  icon.textContent='⚠';icon.style.color=lvl==='critical'?'var(--red)':'var(--orange)';
 }
 
 // ── Main refresh ──
@@ -354,15 +366,20 @@ async function refresh(){
 
   // Chart
   const irr=m.irrigation||{};
-  pushChart(s.soilHumi||0,irr.daySoilHumiThreshold||55);
+  const cfg=irr.config||{};
+  const isDay=irr.isDay!==false;
+  const dayCfg=(cfg.day||{});
+  const nightCfg=(cfg.night||{});
+  const target=(isDay?dayCfg.soilHumi:nightCfg.soilHumi)||55;
+  pushChart(s.soilHumi||0,target);
 
   // Actuator & Modules
   updateActuator(a);
   updateModules(m);
 
   // Header info
+  document.getElementById('hw-profile').textContent=status.hardwareProfile||'--';
   if(simInfo){
-    document.getElementById('hw-profile').textContent=status.hardwareProfile||'--';
     document.getElementById('time-scale').textContent=(simInfo.timeScale||1)+'x';
     const up=simInfo.uptime||0;
     const h=Math.floor(up/3600),mi=Math.floor((up%3600)/60),sec=Math.round(up%60);
