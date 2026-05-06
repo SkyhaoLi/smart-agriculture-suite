@@ -1,0 +1,10 @@
+{
+  "system": {
+    "ruleEngineEnabled": true,
+    "fusionAutoEnabled": false
+  },
+  "irrigation": {},
+  "learning": {},
+  "plantDoctor": {},
+  "fusion": {}
+}

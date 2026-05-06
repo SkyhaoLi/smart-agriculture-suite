@@ -1,0 +1,32 @@
+#pragma once
+
+#include <Arduino.h>
+#include <BH1750.h>
+
+#include "AppConfig.h"
+#include "AppTypes.h"
+
+namespace agri {
+
+class SensorHub {
+public:
+    void begin(const PinConfig& pins);
+    bool update(unsigned long nowMs);
+
+    const SensorSnapshot& snapshot() const { return snapshot_; }
+    bool lightReady() const { return lightReady_; }
+    const String& lastAirFrame() const { return lastAirFrame_; }
+
+private:
+    int readAnalogAverage(int pin) const;
+    void parseAirFrame(const String& frame);
+
+    PinConfig pins_{};
+    SensorSnapshot snapshot_{};
+    BH1750 lightMeter_{};
+    bool lightReady_ = false;
+    unsigned long lastSampleMs_ = 0;
+    String lastAirFrame_;
+};
+
+}  // namespace agri

@@ -1,0 +1,14 @@
+{
+  "name": "smart-agriculture-atlas200dk",
+  "version": "1.0.0",
+  "description": "智润智慧农业套件 - Atlas 200I DK A2 版 (华为昇腾Ascend 310B)",
+  "main": "main.py",
+  "scripts": {
+    "start": "python3 main.py",
+    "start-hybrid": "python3 main.py --profile 2",
+    "start-camera": "python3 main.py --profile 3",
+    "debug": "python3 main.py --debug"
+  },
+  "keywords": ["smart-agriculture", "atlas-200dk", "ascend-310b", "irrigation", "anomaly-detection", "q-learning"],
+  "license": "MIT"
+}

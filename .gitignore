@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+compile_commands.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+nohup.out
+
+# Claude Code
+.claude/
+
+# Simulator runtime data (generated at runtime)
+simulator/data/config.json
+simulator/__pycache__/

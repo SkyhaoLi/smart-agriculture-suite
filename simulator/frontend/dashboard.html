@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>智润 · 智慧农业大屏</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0f1a;--card:#111827;--border:#1e293b;
+  --text:#e2e8f0;--muted:#64748b;--accent:#38bdf8;
+  --green:#4ade80;--orange:#fb923c;--red:#f87171;
+  --blue:#60a5fa;--purple:#a78bfa;--yellow:#facc15;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
+.grid{display:grid;grid-template-rows:56px 1fr 1fr 42px;grid-template-columns:1fr 1fr;height:100vh;gap:8px;padding:8px}
+
+/* 顶部标题栏 */
+.header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:8px;border:1px solid var(--border)}
+.header h1{font-size:22px;font-weight:700;background:linear-gradient(90deg,var(--accent),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
+.header-right{display:flex;gap:24px;align-items:center;font-size:13px;color:var(--muted)}
+.header-right .val{color:var(--text);font-weight:600;font-size:15px;margin-left:4px}
+#btn-fullscreen{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+#btn-fullscreen:hover{border-color:var(--accent);color:var(--accent)}
+
+/* 传感器大数字区 */
+.sensors{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.sensor-card{background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 12px;position:relative;overflow:hidden}
+.sensor-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.sensor-card.temp::before{background:var(--orange)}
+.sensor-card.humi::before{background:var(--blue)}
+.sensor-card.soil::before{background:var(--green)}
+.sensor-card.liquid::before{background:var(--purple)}
+.sensor-card.light::before{background:var(--yellow)}
+.ring-wrap{position:relative;width:80px;height:80px;flex-shrink:0}
+.ring-wrap svg{width:80px;height:80px;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:#1e293b;stroke-width:6}
+.ring-fg{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.8s ease}
+.ring-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:700}
+.sensor-info{display:flex;flex-direction:column;gap:2px}
+.sensor-label{font-size:12px;color:var(--muted);letter-spacing:1px}
+.sensor-value{font-size:32px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.sensor-unit{font-size:14px;color:var(--muted);font-weight:400;margin-left:2px}
+.sensor-card.temp .sensor-value{color:var(--orange)}
+.sensor-card.humi .sensor-value{color:var(--blue)}
+.sensor-card.soil .sensor-value{color:var(--green)}
+.sensor-card.liquid .sensor-value{color:var(--purple)}
+.sensor-card.light .sensor-value{color:var(--yellow)}
+.sensor-card.temp .ring-fg{stroke:var(--orange)}
+.sensor-card.humi .ring-fg{stroke:var(--blue)}
+.sensor-card.soil .ring-fg{stroke:var(--green)}
+.sensor-card.liquid .ring-fg{stroke:var(--purple)}
+.sensor-card.light .ring-fg{stroke:var(--yellow)}
+.ring-center.temp{color:var(--orange)}
+.ring-center.humi{color:var(--blue)}
+.ring-center.soil{color:var(--green)}
+.ring-center.liquid{color:var(--purple)}
+.ring-center.light{color:var(--yellow)}
+
+/* 图表区 */
+.chart-area{grid-column:1/-1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column}
+.chart-area h3{font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500;letter-spacing:1px}
+.chart-area canvas{flex:1;min-height:0}
+
+/* 下半部分 */
+.bottom{display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px}
+.panel h3{font-size:13px;color:var(--muted);margin-bottom:10px;font-weight:500;letter-spacing:1px;border-bottom:1px solid var(--border);padding-bottom:6px}
+
+/* 执行器面板 */
+.act-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:15px}
+.act-label{color:var(--muted);width:60px;font-size:13px}
+.act-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.act-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.act-dot.off{background:#374151}
+.act-val{font-weight:600;font-size:16px}
+.act-val.on{color:var(--green)}
+.act-val.off{color:#6b7280}
+.act-extra{color:var(--muted);font-size:12px;margin-left:auto}
+
+/* AI模块面板 */
+.ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}
+.ai-item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}
+.ai-name{color:var(--muted);width:70px;font-size:12px}
+.ai-status{font-weight:600;font-size:13px}
+.ai-status.on{color:var(--green)}
+.ai-status.off{color:#6b7280}
+.ai-detail{color:var(--muted);font-size:11px;margin-left:auto}
+
+/* 底部告警栏 */
+.footer{grid-column:1/-1;display:flex;align-items:center;padding:0 20px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:13px;gap:12px;overflow:hidden}
+.footer-icon{font-size:16px;flex-shrink:0}
+.footer-text{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.footer-text.ok{color:var(--green)}
+.footer-text.warn{color:var(--orange)}
+.footer-text.critical{color:var(--red)}
+.footer-time{margin-left:auto;color:var(--muted);font-size:12px;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="grid">
+  <!-- 顶部标题栏 -->
+  <div class="header">
+    <h1>智润 · 智慧农业边缘AI灌溉控制系统</h1>
+    <div class="header-right">
+      <span>硬件平台<span class="val" id="hw-profile">--</span></span>
+      <span>运行时长<span class="val" id="uptime">--</span></span>
+      <span>模拟时间<span class="val" id="sim-hours">--</span></span>
+      <span>时间倍率<span class="val" id="time-scale">--</span></span>
+      <button id="btn-fullscreen" onclick="toggleFS()">全屏</button>
+    </div>
+  </div>
+
+  <!-- 传感器大数字 -->
+  <div class="sensors">
+    <div class="sensor-card temp">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="ring-temp" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg>
+        <span class="ring-center temp" id="ring-temp-pct">--</span>
+      </div>
+      <div class="sensor-info">
+        <span class="sensor-label">空气温度</span>
+        <span class="sensor-value"><span id="v-temp">--</span><span class="sensor-unit">°C</span></span>
+      </div>
+    </div>
+    <div class="sensor-card humi">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="ring-humi" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg>
+        <span class="ring-center humi" id="ring-humi-pct">--</span>
+      </div>
+      <div class="sensor-info">
+        <span class="sensor-label">空气湿度</span>
+        <span class="sensor-value"><span id="v-humi">--</span><span class="sensor-unit">%</span></span>
+      </div>
+    </div>
+    <div class="sensor-card soil">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="ring-soil" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg>
+        <span class="ring-center soil" id="ring-soil-pct">--</span>
+      </div>
+      <div class="sensor-info">
+        <span class="sensor-label">土壤湿度</span>
+        <span class="sensor-value"><span id="v-soil">--</span><span class="sensor-unit">%</span></span>
+      </div>
+    </div>
+    <div class="sensor-card liquid">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="ring-liquid" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg>
+        <span class="ring-center liquid" id="ring-liquid-pct">--</span>
+      </div>
+      <div class="sensor-info">
+        <span class="sensor-label">液位</span>
+        <span class="sensor-value"><span id="v-liquid">--</span><span class="sensor-unit">%</span></span>
+      </div>
+    </div>
+    <div class="sensor-card light">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 40 40"><circle class="ring-bg" cx="20" cy="20" r="17"/><circle class="ring-fg" id="ring-light" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg>
+        <span class="ring-center light" id="ring-light-pct">--</span>
+      </div>
+      <div class="sensor-info">
+        <span class="sensor-label">光照强度</span>
+        <span class="sensor-value"><span id="v-light">--</span><span class="sensor-unit">lx</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图表区 -->
+  <div class="chart-area">
+    <h3>土壤湿度实时趋势</h3>
+    <canvas id="chart-soil"></canvas>
+  </div>
+
+  <!-- 下半部分：执行器 + AI模块 -->
+  <div class="bottom">
+    <div class="panel">
+      <h3>执行器状态</h3>
+      <div class="act-row"><span class="act-label">模式</span><span class="act-dot" id="d-mode"></span><span class="act-val" id="v-mode">--</span></div>
+      <div class="act-row"><span class="act-label">水泵</span><span class="act-dot" id="d-pump"></span><span class="act-val" id="v-pump">--</span></div>
+      <div class="act-row"><span class="act-label">阀门</span><span class="act-dot" id="d-valve"></span><span class="act-val" id="v-valve">--</span></div>
+      <div class="act-row"><span class="act-label">来源</span><span class="act-val" id="v-source" style="font-size:14px;color:var(--accent)">--</span></div>
+      <div class="act-row"><span class="act-label">剩余</span><span class="act-val" id="v-remain" style="font-size:14px;color:var(--muted)">--</span></div>
+    </div>
+    <div class="panel">
+      <h3>AI模块状态</h3>
+      <div class="ai-grid">
+        <div class="ai-item"><span class="ai-name">规则引擎</span><span class="ai-status" id="ai-rule">--</span></div>
+        <div class="ai-item"><span class="ai-name">异常检测</span><span class="ai-status" id="ai-anomaly">--</span><span class="ai-detail" id="ai-anomaly-d"></span></div>
+        <div class="ai-item"><span class="ai-name">Q-Learning</span><span class="ai-status" id="ai-learn">--</span><span class="ai-detail" id="ai-learn-d"></span></div>
+        <div class="ai-item"><span class="ai-name">生长预测</span><span class="ai-status" id="ai-growth">--</span><span class="ai-detail" id="ai-growth-d"></span></div>
+        <div class="ai-item"><span class="ai-name">融合决策</span><span class="ai-status" id="ai-fusion">--</span><span class="ai-detail" id="ai-fusion-d"></span></div>
+        <div class="ai-item"><span class="ai-name">植物医生</span><span class="ai-status" id="ai-plant">--</span><span class="ai-detail" id="ai-plant-d"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部告警栏 -->
+  <div class="footer">
+    <span class="footer-icon" id="alert-icon">●</span>
+    <span class="footer-text ok" id="alert-text">系统运行正常</span>
+    <span class="footer-time" id="clock">--:--:--</span>
+  </div>
+</div>
+
+<script>
+const CIRC=2*Math.PI*17; // ring circumference
+const MAX_POINTS=60;
+let soilData={labels:[],values:[]};
+let chart;
+
+// ── API ──
+async function api(path,opts){
+  try{const r=await fetch('/api/'+path,opts||{});return await r.json()}catch(e){return null}
+}
+
+// ── Ring update ──
+function setRing(id,pctId,val,maxVal,colorClass){
+  const pct=Math.min(100,Math.max(0,(val/maxVal)*100));
+  const offset=CIRC*(1-pct/100);
+  const el=document.getElementById(id);
+  if(el) el.style.strokeDashoffset=offset;
+  const p=document.getElementById(pctId);
+  if(p) p.textContent=Math.round(pct)+'%';
+}
+
+// ── Chart ──
+function initChart(){
+  const ctx=document.getElementById('chart-soil').getContext('2d');
+  chart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:[],
+      datasets:[
+        {label:'土壤湿度 %',data:[],borderColor:'#4ade80',backgroundColor:'rgba(74,222,128,0.1)',
+         fill:true,tension:0.3,pointRadius:0,borderWidth:2},
+        {label:'目标值',data:[],borderColor:'rgba(251,146,60,0.6)',borderDash:[6,3],
+         borderWidth:1,pointRadius:0,fill:false}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      scales:{
+        x:{display:true,ticks:{color:'#64748b',maxTicks:10,font:{size:10}},grid:{color:'#1e293b'}},
+        y:{min:0,max:100,ticks:{color:'#64748b',callback:v=>v+'%',font:{size:10}},grid:{color:'#1e293b'}}
+      },
+      plugins:{legend:{labels:{color:'#94a3b8',font:{size:11},usePointStyle:true,pointStyle:'line'}}}
+    }
+  });
+}
+
+function pushChart(soil,target){
+  const t=new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  soilData.labels.push(t);
+  soilData.values.push(soil);
+  if(soilData.labels.length>MAX_POINTS){soilData.labels.shift();soilData.values.shift()}
+  chart.data.labels=soilData.labels;
+  chart.data.datasets[0].data=soilData.values;
+  chart.data.datasets[1].data=soilData.labels.map(()=>target);
+  chart.update('none');
+}
+
+// ── Actuator ──
+function updateActuator(a){
+  const setDot=(id,on)=>{const el=document.getElementById(id);if(el){el.className='act-dot '+(on?'on':'off')}};
+  const setVal=(id,on,txt)=>{const el=document.getElementById(id);if(el){el.className='act-val '+(on?'on':'off');el.textContent=txt||'--'}};
+
+  setDot('d-mode',a.autoMode);
+  setVal('v-mode',a.autoMode,'自动','手动');
+  document.getElementById('v-mode').textContent=a.autoMode?'自动':'手动';
+  document.getElementById('v-mode').className='act-val '+(a.autoMode?'on':'off');
+
+  setDot('d-pump',a.pumpOn);
+  document.getElementById('v-pump').textContent=a.pumpOn?'ON':'OFF';
+  document.getElementById('v-pump').className='act-val '+(a.pumpOn?'on':'off');
+
+  setDot('d-valve',a.valveOn);
+  document.getElementById('v-valve').textContent=a.valveOn?'ON':'OFF';
+  document.getElementById('v-valve').className='act-val '+(a.valveOn?'on':'off');
+
+  const srcMap={idle:'空闲',rule:'规则引擎',learning:'Q-Learning',fusion:'融合决策',manual:'手动',safety:'安全锁定'};
+  document.getElementById('v-source').textContent=srcMap[a.source]||a.source||'--';
+  document.getElementById('v-remain').textContent=a.timedRunActive?(a.secondsRemaining+'s'):'--';
+}
+
+// ── AI Modules ──
+function setAI(id,status,detailId,detail){
+  const el=document.getElementById(id);
+  if(el){el.textContent=status;el.className='ai-status '+(status==='ON'?'on':'off')}
+  if(detailId){const d=document.getElementById(detailId);if(d) d.textContent=detail||''}
+}
+
+function updateModules(m){
+  // Rule
+  const irr=m.irrigation||{};
+  setAI('ai-rule',irr.enabled?'ON':'OFF');
+  // Anomaly
+  const anom=m.anomaly||{};
+  const anomStatus=anom.alertLevelName==='normal'?'正常':anom.alertLevelName==='warning'?'警告':'严重';
+  setAI('ai-anomaly',anomStatus,'ai-anomaly-d','IF='+((anom.iforestScore||0).toFixed(2)));
+  const anomEl=document.getElementById('ai-anomaly');
+  if(anomEl) anomEl.style.color=anom.alertLevelName==='normal'?'var(--green)':anom.alertLevelName==='warning'?'var(--orange)':'var(--red)';
+  // Learning
+  const lrn=m.learning||{};
+  setAI('ai-learn',lrn.autoControlEnabled?'ON':'OFF','ai-learn-d','ε='+((lrn.epsilon||0).toFixed(2))+' R='+(lrn.averageReward||0).toFixed(1));
+  // Growth
+  const grw=m.growth||{};
+  setAI('ai-growth',grw.cropCn||'--','ai-growth-d',(grw.stageNameCn||'')+' Day'+(grw.dayOfGrowth||0));
+  // Fusion
+  const fus=m.fusion||{};
+  setAI('ai-fusion',fus.autoControlEnabled?'ON':'OFF','ai-fusion-d',fus.decisionName||'--');
+  // Plant
+  const plt=m.plantDoctor||{};
+  const plantStatus=plt.lastDiseaseNameCn||'--';
+  setAI('ai-plant',plt.enabled?'ON':'OFF','ai-plant-d',plantStatus+' '+((plt.lastConfidence||0)*100).toFixed(0)+'%');
+}
+
+// ── Alerts ──
+async function refreshAlerts(){
+  const d=await api('anomaly/alerts');
+  const el=document.getElementById('alert-text');
+  const icon=document.getElementById('alert-icon');
+  if(!d||!d.alerts||d.alerts.length===0){
+    el.textContent='系统运行正常';el.className='footer-text ok';icon.textContent='●';icon.style.color='var(--green)';
+    return;
+  }
+  const latest=d.alerts[d.alerts.length-1];
+  el.textContent='['+latest.level+'] '+latest.message;
+  el.className='footer-text '+(latest.level==='critical'?'critical':'warn');
+  icon.textContent='⚠';icon.style.color=latest.level==='critical'?'var(--red)':'var(--orange)';
+}
+
+// ── Main refresh ──
+async function refresh(){
+  const [status,simInfo]=await Promise.all([api('status'),api('simulator/status')]);
+  if(!status) return;
+  const s=status.sensors||{};
+  const a=status.actuator||{};
+  const m=status.modules||{};
+
+  // Sensors
+  document.getElementById('v-temp').textContent=(s.airTemp||0).toFixed(1);
+  document.getElementById('v-humi').textContent=(s.airHumi||0).toFixed(1);
+  document.getElementById('v-soil').textContent=(s.soilHumi||0).toFixed(1);
+  document.getElementById('v-liquid').textContent=(s.liquidLevel||0).toFixed(1);
+  document.getElementById('v-light').textContent=Math.round(s.lightValue||0);
+
+  // Rings (temp: 0-50C, others: 0-100%)
+  setRing('ring-temp','ring-temp-pct',s.airTemp||0,50,'temp');
+  setRing('ring-humi','ring-humi-pct',s.airHumi||0,100,'humi');
+  setRing('ring-soil','ring-soil-pct',s.soilHumi||0,100,'soil');
+  setRing('ring-liquid','ring-liquid-pct',s.liquidLevel||0,100,'liquid');
+  setRing('ring-light','ring-light-pct',Math.min(s.lightValue||0,2000),2000,'light');
+
+  // Chart
+  const irr=m.irrigation||{};
+  pushChart(s.soilHumi||0,irr.daySoilHumiThreshold||55);
+
+  // Actuator & Modules
+  updateActuator(a);
+  updateModules(m);
+
+  // Header info
+  if(simInfo){
+    document.getElementById('hw-profile').textContent=status.hardwareProfile||'--';
+    document.getElementById('time-scale').textContent=(simInfo.timeScale||1)+'x';
+    const up=simInfo.uptime||0;
+    const h=Math.floor(up/3600),mi=Math.floor((up%3600)/60),sec=Math.round(up%60);
+    document.getElementById('uptime').textContent=(h>0?h+'h ':'')+mi+'m '+sec+'s';
+    document.getElementById('sim-hours').textContent=(simInfo.simHours||0).toFixed(1)+'h';
+  }
+}
+
+// Clock
+function updateClock(){
+  document.getElementById('clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour12:false});
+}
+
+// Fullscreen
+function toggleFS(){
+  if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+}
+
+// Init
+initChart();
+refresh();
+refreshAlerts();
+updateClock();
+setInterval(refresh,3000);
+setInterval(refreshAlerts,5000);
+setInterval(updateClock,1000);
+</script>
+</body>
+</html>
