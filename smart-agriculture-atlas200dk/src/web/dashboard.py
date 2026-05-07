@@ -36,6 +36,7 @@ class WebDashboard:
                           static_folder=static_dir or os.path.join(os.path.dirname(__file__), 'static'),
                           static_url_path='/static')
         self._app.config['JSON_SORT_KEYS'] = False
+        self._start_time = time.time()
         self._register_routes()
 
     @property
@@ -52,6 +53,11 @@ class WebDashboard:
         def index():
             return send_from_directory(
                 os.path.join(os.path.dirname(__file__), 'static'), 'index.html')
+
+        @app.route('/dashboard')
+        def dashboard():
+            return send_from_directory(
+                os.path.join(os.path.dirname(__file__), 'static'), 'dashboard.html')
 
         # ── 总状态 ──
         @app.route('/api/status')
@@ -292,9 +298,20 @@ class WebDashboard:
     def _build_overall_status(self) -> dict:
         snap = self._sensor_hub.snapshot
         status = self._actuator.status
+
+        # ControlSource enum → string
+        _source_map = {
+            0: "safety", 1: "manual", 2: "timed",
+            3: "rule", 99: "idle",
+        }
+        source_str = _source_map.get(int(status.active_source), "idle")
+        remaining_ms = status.timed_run_remaining_ms
+
         return {
             "project": "smart-agriculture-atlas200dk",
             "hardwareProfile": "Atlas200IDKA2",
+            "simUptime": round(time.time() - self._start_time, 1),
+            "simTimeScale": 1,
             "sensors": {
                 "airTemp": round(snap.air_temp, 1),
                 "airHumi": round(snap.air_humi, 1),
@@ -307,6 +324,9 @@ class WebDashboard:
                 "pumpOn": status.pump_on,
                 "autoMode": self._actuator._auto_mode,
                 "lowLiquidLock": status.safety_lock,
+                "source": source_str,
+                "timedRunActive": remaining_ms > 0,
+                "secondsRemaining": round(remaining_ms / 1000) if remaining_ms > 0 else 0,
             },
             "modules": {
                 "irrigation": self._irrigation.to_dict(),
