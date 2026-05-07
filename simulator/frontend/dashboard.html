@@ -14,7 +14,7 @@
   --blue:#60a5fa;--purple:#a78bfa;--yellow:#facc15;
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
-.grid{display:grid;grid-template-rows:56px auto 1fr auto 42px;grid-template-columns:1fr 1fr;height:100vh;gap:8px;padding:8px}
+.grid{display:grid;grid-template-rows:56px auto minmax(200px,1fr) auto 42px;grid-template-columns:1fr 1fr;height:100vh;gap:8px;padding:8px}
 
 /* 顶部标题栏 */
 .header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:8px;border:1px solid var(--border)}
@@ -59,9 +59,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .ring-center.light{color:var(--yellow)}
 
 /* 图表区 */
-.chart-area{grid-column:1/-1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column}
+.chart-area{grid-column:1/-1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;min-height:200px;position:relative}
 .chart-area h3{font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:500;letter-spacing:1px}
-.chart-area canvas{flex:1;min-height:0}
+.chart-area .chart-wrap{flex:1;position:relative;min-height:100px}
+.chart-area canvas{position:absolute;top:0;left:0;width:100%!important;height:100%!important}
 
 /* 下半部分 */
 .bottom{grid-column:1/-1;display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
@@ -104,8 +105,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .ring-wrap svg{width:60px;height:60px}
 }
 @media(max-width:800px){
-  .grid{grid-template-columns:1fr;grid-template-rows:56px auto auto auto auto 42px}
+  .grid{grid-template-columns:1fr;grid-template-rows:56px auto auto auto auto 42px;height:auto;min-height:100vh}
   .sensors{grid-template-columns:repeat(2,1fr)}
+  .chart-area{min-height:150px}
   .bottom{grid-template-columns:1fr}
   .header-right{gap:12px;font-size:11px}
   .header h1{font-size:16px}
@@ -183,7 +185,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <!-- 图表区 -->
   <div class="chart-area">
     <h3>土壤湿度实时趋势</h3>
-    <canvas id="chart-soil"></canvas>
+    <div class="chart-wrap"><canvas id="chart-soil"></canvas></div>
   </div>
 
   <!-- 下半部分：执行器 + AI模块 -->
@@ -246,17 +248,17 @@ function initChart(){
     data:{
       labels:[],
       datasets:[
-        {label:'土壤湿度 %',data:[],borderColor:'#4ade80',backgroundColor:'rgba(74,222,128,0.1)',
-         fill:true,tension:0.3,pointRadius:0,borderWidth:2},
-        {label:'目标值',data:[],borderColor:'rgba(251,146,60,0.6)',borderDash:[6,3],
-         borderWidth:1,pointRadius:0,fill:false}
+        {label:'土壤湿度 %',data:[],borderColor:'#4ade80',backgroundColor:'rgba(74,222,128,0.15)',
+         fill:true,tension:0.3,pointRadius:3,pointBackgroundColor:'#4ade80',borderWidth:3},
+        {label:'目标值',data:[],borderColor:'rgba(251,146,60,0.7)',borderDash:[6,3],
+         borderWidth:2,pointRadius:0,fill:false}
       ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,animation:false,
       scales:{
         x:{display:true,ticks:{color:'#64748b',maxTicks:10,font:{size:10}},grid:{color:'#1e293b'}},
-        y:{min:0,max:100,ticks:{color:'#64748b',callback:v=>v+'%',font:{size:10}},grid:{color:'#1e293b'}}
+        y:{ticks:{color:'#64748b',callback:v=>v+'%',font:{size:10}},grid:{color:'#1e293b'}}
       },
       plugins:{legend:{labels:{color:'#94a3b8',font:{size:11},usePointStyle:true,pointStyle:'line'}}}
     }
@@ -307,7 +309,7 @@ function updateModules(m){
   // Anomaly
   const anom=m.anomaly||{};
   const levelName=anom.alertLevelName||'normal';
-  const anomMap={normal:{text:'正常',color:'var(--green)'},warning:{text:'警告',color:'var(--orange)'},critical:{text:'严重',color:'var(--red)'}};
+  const anomMap={normal:{text:'正常',color:'var(--green)'},info:{text:'提示',color:'var(--blue)'},warning:{text:'警告',color:'var(--orange)'},critical:{text:'严重',color:'var(--red)'}};
   const a=anomMap[levelName]||anomMap.normal;
   setAI('ai-anomaly',a.text,a.color,'ai-anomaly-d','IF='+((anom.iforestScore||0).toFixed(2)));
   // Learning
@@ -321,9 +323,10 @@ function updateModules(m){
   setAI('ai-fusion',fus.autoControlEnabled?'ON':'OFF',fus.autoControlEnabled?'var(--green)':'#6b7280','ai-fusion-d',fus.decisionName||'--');
   // Plant
   const plt=m.plantDoctor||{};
-  const plantStatus=plt.lastDiseaseNameCn||'--';
   const plantOk=!plt.lastDiseaseName||plt.lastDiseaseName==='Healthy';
-  setAI('ai-plant',plt.enabled?'ON':'OFF',plt.enabled?'var(--green)':'#6b7280','ai-plant-d',plantStatus+' '+((plt.lastConfidence||0)*100).toFixed(0)+'%');
+  const plantLabel=plantOk?'健康':(plt.lastDiseaseNameCn||'病害');
+  const plantColor=plantOk?'var(--green)':'var(--red)';
+  setAI('ai-plant',plt.enabled?plantLabel:'OFF',plt.enabled?plantColor:'#6b7280','ai-plant-d',plt.enabled?((plt.lastConfidence||0)*100).toFixed(0)+'%':'');
 }
 
 // ── Alerts ──
@@ -345,7 +348,11 @@ async function refreshAlerts(){
 // ── Main refresh ──
 async function refresh(){
   const [status,simInfo]=await Promise.all([api('status'),api('simulator/status')]);
-  if(!status) return;
+  if(!status){
+    document.getElementById('alert-icon').textContent='⚠';document.getElementById('alert-icon').style.color='var(--red)';
+    document.getElementById('alert-text').textContent='无法连接服务器';document.getElementById('alert-text').className='footer-text critical';
+    return;
+  }
   const s=status.sensors||{};
   const a=status.actuator||{};
   const m=status.modules||{};
@@ -379,13 +386,13 @@ async function refresh(){
 
   // Header info
   document.getElementById('hw-profile').textContent=status.hardwareProfile||'--';
-  if(simInfo){
-    document.getElementById('time-scale').textContent=(simInfo.timeScale||1)+'x';
-    const up=simInfo.uptime||0;
-    const h=Math.floor(up/3600),mi=Math.floor((up%3600)/60),sec=Math.round(up%60);
-    document.getElementById('uptime').textContent=(h>0?h+'h ':'')+mi+'m '+sec+'s';
-    document.getElementById('sim-hours').textContent=(simInfo.simHours||0).toFixed(1)+'h';
-  }
+  const up=(simInfo&&simInfo.uptime!=null)?simInfo.uptime:(status.simUptime||0);
+  const ts=(simInfo&&simInfo.timeScale!=null)?simInfo.timeScale:(status.simTimeScale||1);
+  const sh=(simInfo&&simInfo.simHours!=null)?simInfo.simHours:((status.simUptime||0)/3600);
+  document.getElementById('time-scale').textContent=ts+'x';
+  const h=Math.floor(up/3600),mi=Math.floor((up%3600)/60),sec=Math.round(up%60);
+  document.getElementById('uptime').textContent=(h>0?h+'h ':'')+mi+'m '+sec+'s';
+  document.getElementById('sim-hours').textContent=(sh||0).toFixed(1)+'h';
 }
 
 // Clock
