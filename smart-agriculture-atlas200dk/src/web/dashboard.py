@@ -152,6 +152,10 @@ class WebDashboard:
         def api_anomaly_status():
             return jsonify(self._anomaly.to_dict())
 
+        @app.route('/api/anomaly/alerts')
+        def api_anomaly_alerts():
+            return jsonify(self._anomaly.alerts())
+
         @app.route('/api/anomaly/clear', methods=['POST'])
         def api_anomaly_clear():
             self._anomaly.clear()

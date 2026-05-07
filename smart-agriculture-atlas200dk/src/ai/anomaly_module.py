@@ -343,10 +343,22 @@ class AnomalyModule:
         elif level == AnomalyLevel.Critical:
             self._buzzer.beep(count=4, on_ms=50, off_ms=50)
 
+    def alerts(self) -> list:
+        """Return recent alerts for dashboard display."""
+        return [
+            {
+                "timestamp": a.timestamp,
+                "levelName": a.level.name.lower(),
+                "sensor": a.sensor,
+                "message": a.message,
+            }
+            for a in self._alerts
+        ]
+
     def to_dict(self) -> dict:
         return {
             "alertLevel": self._current_level.value,
-            "alertLevelName": self._current_level.name,
+            "alertLevelName": self._current_level.name.lower(),
             "totalSamples": self._total_samples,
             "totalAnomalies": self._total_anomalies,
             "iforestTrained": self._iforest_trained,

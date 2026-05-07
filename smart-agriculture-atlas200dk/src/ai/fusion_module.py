@@ -302,6 +302,7 @@ class FusionModule:
         return {
             "autoControlEnabled": self._auto_control_enabled,
             "decision": self._result.decision,
+            "decisionName": self._result.decision,
             "confidence": round(self._result.confidence, 3),
             "needScore": round(self._result.need_score, 2),
             "weightedScore": round(self._result.weighted_score, 2),
