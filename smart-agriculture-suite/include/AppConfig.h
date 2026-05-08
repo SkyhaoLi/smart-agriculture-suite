@@ -14,6 +14,8 @@ enum class HardwareProfile : uint8_t {
     CameraEyeStandalone = 3
 };
 
+// ESP32-S3 使用DVP接口摄像头 (硬件限制, 不支持USB摄像头)
+// Atlas 200I DK A2 版使用USB摄像头 (通过OpenCV/VideoCapture读取)
 struct CameraPinConfig {
     bool enabled = false;
     int pwdn = -1;

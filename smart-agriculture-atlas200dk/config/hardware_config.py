@@ -136,9 +136,9 @@ class PinConfig:
     pump_gpio: int = GPIOLine.GPIO27    # 水泵   -> Pin13 (GPIO27)
     buzzer_gpio: int = GPIOLine.GPIO22  # 蜂鸣器 -> Pin15 (GPIO22)
 
-    # 摄像头 (HybridDevKit / CameraEyeStandalone)
-    camera_type: str = "mipi"  # Atlas 200I DK A2 原生MIPI-CSI摄像头, 非DVP
-    camera_id: int = 0         # MIPI-CSI 0 或 1
+    # 摄像头 (USB摄像头, 通过OpenCV/VideoCapture读取)
+    camera_type: str = "usb"   # USB摄像头, 通过OpenCV/VideoCapture读取
+    camera_id: int = 0         # USB设备ID (如 /dev/video0)
 
     # GPIO芯片名
     gpio_chip: str = "gpiochip0"

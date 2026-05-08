@@ -214,7 +214,7 @@ def main():
     parser.add_argument('--port', type=int, default=8080,
                         help='Web仪表盘端口')
     parser.add_argument('--camera', type=int, default=0,
-                        help='MIPI-CSI摄像头ID')
+                        help='USB摄像头设备ID (如 /dev/video0)')
     parser.add_argument('--no-oled', action='store_true',
                         help='禁用OLED显示')
     parser.add_argument('--debug', action='store_true',

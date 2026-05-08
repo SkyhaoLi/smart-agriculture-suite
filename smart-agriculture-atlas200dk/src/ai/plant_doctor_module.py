@@ -4,7 +4,7 @@
 
 对应原ESP32项目的 PlantDoctorModule.h/PlantDoctorModule.cpp
 ESP32使用TFLite Micro + DVP摄像头, Atlas 200I DK A2使用:
-- MIPI-CSI摄像头 (原生支持, 非DVP)
+- USB摄像头 (通过OpenCV/VideoCapture读取)
 - ACL Python SDK 或 ONNX Runtime 加载病害检测模型
 - NPU 8 TOPS INT8 推理, 性能远超ESP32
 
@@ -97,7 +97,7 @@ class PlantDoctorModule:
         return success
 
     def _setup_camera(self) -> bool:
-        """初始化MIPI-CSI摄像头 (Atlas 200I DK A2原生支持)"""
+        """初始化USB摄像头 (通过OpenCV/VideoCapture读取)"""
         try:
             self._capture = cv2.VideoCapture(self._camera_id)
             if self._capture.isOpened():
