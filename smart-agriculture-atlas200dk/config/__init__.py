@@ -5,8 +5,8 @@ from .hardware_config import (
 )
 from .app_types import (
     ControlSource, IrrigationAction, AnomalyLevel, DiseaseClass, CropType,
-    GrowthStage, SensorSnapshot, IrrigationThresholdConfig, LearningConfig,
-    PlantDoctorConfig, ActuatorStatus, AnomalyResult, DiseaseResult, GrowthState,
+    GrowthStage, SensorSnapshot, IrrigationThresholdConfig,
+    ActuatorStatus, AnomalyResult, DiseaseResult, GrowthState,
     DISEASE_NAMES, CROP_NAMES,
 )
 
@@ -14,7 +14,7 @@ __all__ = [
     "PinConfig", "ADCConfig", "SystemConfig", "Timing",
     "HWProfile", "Pin40", "GPIOLine", "CONFIG_FILE", "DATA_DIR", "MODEL_DIR", "LOG_DIR",
     "ControlSource", "IrrigationAction", "AnomalyLevel", "DiseaseClass", "CropType",
-    "GrowthStage", "SensorSnapshot", "IrrigationThresholdConfig", "LearningConfig",
-    "PlantDoctorConfig", "ActuatorStatus", "AnomalyResult", "DiseaseResult", "GrowthState",
+    "GrowthStage", "SensorSnapshot", "IrrigationThresholdConfig",
+    "ActuatorStatus", "AnomalyResult", "DiseaseResult", "GrowthState",
     "DISEASE_NAMES", "CROP_NAMES",
 ]

@@ -16,7 +16,7 @@ from collections import deque
 
 import numpy as np
 
-from config.app_types import SensorSnapshot, AnomalyLevel, AnomalyResult
+from config.app_types import SensorSnapshot, AnomalyLevel
 
 logger = logging.getLogger(__name__)
 
@@ -329,8 +329,8 @@ class AnomalyModule:
                 break
             if s.is_anomalous and max_level.value < AnomalyLevel.Warning.value:
                 max_level = AnomalyLevel.Warning
-            if s.is_stuck and max_level.value < AnomalyLevel.Normal.value:
-                max_level = AnomalyLevel.Normal
+            if s.is_stuck and max_level.value < AnomalyLevel.Warning.value:
+                max_level = AnomalyLevel.Warning
         if self._iforest_score > self.IFOREST_THRESHOLD and max_level.value < AnomalyLevel.Warning.value:
             max_level = AnomalyLevel.Warning
         self._current_level = max_level

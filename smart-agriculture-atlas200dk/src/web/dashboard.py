@@ -11,7 +11,6 @@ import json
 import time
 import logging
 import numpy as np
-import cv2
 
 from flask import Flask, request, jsonify, Response, send_from_directory
 
@@ -278,6 +277,7 @@ class WebDashboard:
 
         @app.route('/api/plant/capture')
         def api_plant_capture():
+            import cv2
             frame = self._plant_doctor.capture_image()
             if frame is None:
                 return jsonify({"error": "Capture failed"}), 503

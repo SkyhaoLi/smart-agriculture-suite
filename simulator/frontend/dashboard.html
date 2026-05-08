@@ -290,7 +290,7 @@ function updateActuator(a){
   setDot('d-valve',a.valveOn);
   setVal('v-valve',a.valveOn,a.valveOn?'ON':'OFF');
 
-  const srcMap={idle:'空闲',rule:'规则引擎',learning:'Q-Learning',fusion:'融合决策',manual:'手动',safety:'安全锁定'};
+  const srcMap={idle:'空闲',rule:'规则引擎',learning:'Q-Learning',fusion:'融合决策',timed:'定时运行',manual:'手动',safety:'安全锁定'};
   document.getElementById('v-source').textContent=srcMap[a.source]||a.source||'--';
   document.getElementById('v-remain').textContent=a.timedRunActive?(a.secondsRemaining+'s'):'--';
 }

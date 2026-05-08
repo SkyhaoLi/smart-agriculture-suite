@@ -6,7 +6,7 @@ pyserial>=3.5           # UART空气温湿度传感器
 smbus2>=0.4.2           # I2C (BH1750光照 + ADS1115 ADC + SSD1306 OLED)
 
 # GPIO控制
-gpiod>=1.6              # Linux GPIO子系统 (阀门/水泵/蜂鸣器)
+gpiod>=1.6,<2.0         # Linux GPIO子系统 (阀门/水泵/蜂鸣器, 仅兼容v1 API)
 
 # AI/ML核心
 numpy>=1.24.0           # 数值计算 (Q-Learning, 卡尔曼滤波, 孤立森林)

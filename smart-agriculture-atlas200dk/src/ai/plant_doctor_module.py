@@ -347,7 +347,7 @@ class PlantDoctorModule:
 
             # 创建输出dataset
             output_dataset = acl.mdl.create_dataset()
-            output_size = self._NUM_CLASSES * 4  # 5 * float32
+            output_size = self.NUM_CLASSES * 4  # 5 * float32
             dev_output = acl.rt.malloc_host(output_size)
             dataset_output = acl.create_data_buffer(dev_output, output_size)
             acl.mdl.add_dataset_buffer(output_dataset, dataset_output)

@@ -7,7 +7,7 @@
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional, List, Dict
+from typing import Optional, List
 import time
 
 
@@ -128,33 +128,6 @@ class IrrigationThresholdConfig:
     soil_humi_high: float = 70.0
     liquid_level_warn: float = 15.0
 
-
-# ============================================================================
-# 学习模块配置
-# ============================================================================
-@dataclass
-class LearningConfig:
-    enabled: bool = True
-    decision_interval_ms: int = 300000
-    epsilon_start: float = 0.3
-    epsilon_min: float = 0.05
-    epsilon_decay: float = 0.9995
-    learning_rate: float = 0.1
-    discount_factor: float = 0.95
-    state_bins: Dict = field(default_factory=lambda: {
-        'temp': 5, 'humi': 4, 'soil': 5, 'light': 3, 'time': 3
-    })
-
-
-# ============================================================================
-# 植物医生配置
-# ============================================================================
-@dataclass
-class PlantDoctorConfig:
-    enabled: bool = True
-    interval_ms: int = 60000
-    confidence_threshold: float = 0.70
-    buzzer_on_detect: bool = True
 
 
 # ============================================================================
