@@ -191,6 +191,12 @@ class WebDashboard:
             self._growth.reset()
             return jsonify({"success": True})
 
+        @app.route('/api/growth/prediction')
+        def api_growth_prediction():
+            from config.app_types import CROP_NAMES
+            crops = [{"id": k, "name": v, "nameCn": v} for k, v in CROP_NAMES.items()]
+            return jsonify({"availableCrops": crops})
+
         # ── Q-Learning ──
         @app.route('/api/learning/status')
         def api_learning_status():
@@ -198,7 +204,15 @@ class WebDashboard:
 
         @app.route('/api/learning/qtable')
         def api_learning_qtable():
-            return jsonify(self._learning.to_dict())
+            qt = self._learning._q_table
+            nonzero = int(np.count_nonzero(qt))
+            total = qt.size
+            return jsonify({
+                "nonZeroEntries": nonzero,
+                "coverage": round(nonzero / total * 100, 1) if total > 0 else 0,
+                "maxQ": round(float(np.max(qt)), 4),
+                "minQ": round(float(np.min(qt)), 4),
+            })
 
         @app.route('/api/learning/params', methods=['POST'])
         def api_learning_params():
@@ -262,9 +276,15 @@ class WebDashboard:
 
         @app.route('/api/plant/history')
         def api_plant_history():
+            from config.app_types import DISEASE_NAMES
             return jsonify([
-                {"diseaseId": r.disease_id, "confidence": round(r.confidence, 4),
-                 "timestamp": r.timestamp}
+                {
+                    "diseaseId": r.disease_id,
+                    "diseaseNameCn": DISEASE_NAMES.get(r.disease_id, "未知"),
+                    "diseaseName": str(r.disease_id),
+                    "confidence": round(r.confidence, 4),
+                    "timestamp": r.timestamp,
+                }
                 for r in self._plant_doctor._history
             ])
 
@@ -273,7 +293,14 @@ class WebDashboard:
             result = self._plant_doctor.perform_detection()
             if result is None:
                 return jsonify({"error": "Plant doctor unavailable"}), 503
-            return jsonify(self._plant_doctor.to_dict())
+            d = self._plant_doctor.to_dict()
+            return jsonify({
+                "diseaseNameCn": d.get("lastDiseaseNameCn", ""),
+                "diseaseName": d.get("lastDiseaseName", ""),
+                "confidence": d.get("lastConfidence", 0),
+                "treatment": d.get("treatment", ""),
+                "diseaseId": d.get("lastDiseaseId", 0),
+            })
 
         @app.route('/api/plant/capture')
         def api_plant_capture():
@@ -299,6 +326,18 @@ class WebDashboard:
                 self._plant_doctor._buzzer_enabled = body['buzzerEnabled']
             return jsonify({"success": True})
 
+        @app.route('/api/system/factory-reset', methods=['POST'])
+        def api_factory_reset():
+            self._irrigation.enabled = True
+            self._irrigation.update_config({
+                'day': {'airTemp': 35, 'airHumi': 40, 'soilHumi': 30},
+                'night': {'airTemp': 25, 'airHumi': 50, 'soilHumi': 30},
+            })
+            self._learning._config.auto_control_enabled = True
+            self._fusion._auto_control_enabled = True
+            self._plant_doctor._enabled = True
+            return jsonify({"success": True})
+
     def _build_overall_status(self) -> dict:
         snap = self._sensor_hub.snapshot
         status = self._actuator.status
@@ -311,11 +350,24 @@ class WebDashboard:
         source_str = _source_map.get(int(status.active_source), "idle")
         remaining_ms = status.timed_run_remaining_ms
 
+        # 获取本机IP地址
+        ip_addr = "127.0.0.1"
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+
         return {
             "project": "smart-agriculture-atlas200dk",
             "hardwareProfile": "Atlas200IDKA2",
             "simUptime": round(time.time() - self._start_time, 1),
             "simTimeScale": 1,
+            "wifiConnected": True,
+            "ipAddress": ip_addr,
             "sensors": {
                 "airTemp": round(snap.air_temp, 1),
                 "airHumi": round(snap.air_humi, 1),

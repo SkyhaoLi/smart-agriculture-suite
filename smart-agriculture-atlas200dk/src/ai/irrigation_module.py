@@ -64,6 +64,24 @@ class IrrigationModule:
         return self._result
 
     def update_config(self, config_dict: dict):
+        # 前端发送嵌套格式: {day: {airTemp, airHumi, soilHumi}, night: {...}}
+        if 'day' in config_dict and isinstance(config_dict['day'], dict):
+            day = config_dict['day']
+            if 'airTemp' in day:
+                self._config.air_temp_day_high = float(day['airTemp'])
+            if 'airHumi' in day:
+                self._config.air_humi_day_low = float(day['airHumi'])
+            if 'soilHumi' in day:
+                self._config.soil_humi_low = float(day['soilHumi'])
+        if 'night' in config_dict and isinstance(config_dict['night'], dict):
+            night = config_dict['night']
+            if 'airTemp' in night:
+                self._config.air_temp_night_high = float(night['airTemp'])
+            if 'airHumi' in night:
+                self._config.air_humi_night_low = float(night['airHumi'])
+            if 'soilHumi' in night:
+                self._config.soil_humi_low = float(night['soilHumi'])
+        # 也支持平铺格式
         for key, value in config_dict.items():
             if hasattr(self._config, key):
                 setattr(self._config, key, value)
@@ -97,14 +115,12 @@ class IrrigationModule:
             "reason": self._result.reason,
             "config": {
                 "day": {
-                    "airTempHigh": self._config.air_temp_day_high,
-                    "airTempLow": self._config.air_temp_day_low,
+                    "airTemp": self._config.air_temp_day_high,
                     "airHumi": self._config.air_humi_day_low,
                     "soilHumi": self._config.soil_humi_low,
                 },
                 "night": {
-                    "airTempHigh": self._config.air_temp_night_high,
-                    "airTempLow": self._config.air_temp_night_low,
+                    "airTemp": self._config.air_temp_night_high,
                     "airHumi": self._config.air_humi_night_low,
                     "soilHumi": self._config.soil_humi_low,
                 },

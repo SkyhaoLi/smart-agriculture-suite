@@ -6,6 +6,7 @@
 使用Linux I2C/UART/ADC接口替代ESP32的硬件抽象
 """
 
+import math
 import serial
 import smbus2
 import time
@@ -102,6 +103,12 @@ class SensorHub:
         lux = self._read_bh1750()
         if lux is not None and lux >= 0:
             self._snapshot.light_intensity = lux
+
+        # NaN检测: 替换为0而非传播NaN
+        for attr in ('air_temp', 'air_humi', 'soil_humi', 'liquid_level', 'light_intensity'):
+            val = getattr(self._snapshot, attr)
+            if math.isnan(val) or math.isinf(val):
+                setattr(self._snapshot, attr, 0.0)
 
         # 日夜判断
         self._snapshot.is_day = self._snapshot.light_intensity >= 200.0
@@ -240,7 +247,10 @@ class SensorHub:
     # ------------------------------------------------------------------
     @staticmethod
     def _map_constrain(value, in_min, in_max, out_min, out_max):
-        mapped = out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min)
+        denom = in_max - in_min
+        if abs(denom) < 1e-6:
+            return (out_min + out_max) / 2.0
+        mapped = out_min + (value - in_min) * (out_max - out_min) / denom
         return max(out_min, min(out_max, mapped))
 
     def close(self):
