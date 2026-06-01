@@ -1,28 +1,16 @@
 # 智润智慧农业套件 - Atlas 200I DK A2 依赖
 # pip install -r requirements.txt
 
-# 传感器
-pyserial>=3.5           # UART空气温湿度传感器
-smbus2>=0.4.2           # I2C (BH1750光照 + ADS1115 ADC + SSD1306 OLED)
-
-# GPIO控制
-gpiod>=1.6,<2.0         # Linux GPIO子系统 (阀门/水泵/蜂鸣器, 仅兼容v1 API)
-
-# AI/ML核心
-numpy>=1.24.0           # 数值计算 (Q-Learning, 卡尔曼滤波, 孤立森林)
-
-# 病害检测 - 推理引擎 (按可用性选择)
-opencv-python>=4.8.0    # 摄像头捕获 + OpenCV DNN推理后备
-# onnxruntime>=1.16.0  # ONNX Runtime推理 (推荐, apt install python3-onnxruntime)
-# acl                  # 华为ACL SDK (Atlas 200I DK A2自带, NPU推理首选)
-
-# Web仪表盘
+# 核心依赖
+numpy>=1.24.0           # 数值计算 (世界模型, 强化学习)
 flask>=3.0.0            # REST API + 单页前端
 
-# OLED显示 (可选)
-# luma.oled>=3.13      # SSD1306 I2C OLED
-# luma.core>=2.4       # luma底层
+# 可选: 传感器硬件 (仅Atlas直连传感器时需要)
+# pyserial>=3.5         # UART空气温湿度传感器
+# smbus2>=0.4.2         # I2C (BH1750光照 + ADS1115 ADC + SSD1306 OLED)
+# gpiod>=1.6,<2.0       # Linux GPIO子系统 (阀门/水泵/蜂鸣器)
 
-# 数据持久化 (JSON, Python内置)
-# 开发调试
-# Pillow>=10.0         # 图像处理调试
+# 可选: 摄像头病害检测 (需要时取消注释)
+# opencv-python>=4.8.0  # 摄像头捕获
+# onnxruntime>=1.16.0   # ONNX Runtime推理
+# acl                   # 华为ACL SDK (NPU推理首选)
