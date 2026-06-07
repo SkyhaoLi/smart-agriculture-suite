@@ -173,7 +173,8 @@ class CrossCropDiseaseRecognizer:
         self.env_disease_b = np.zeros(n_diseases)
 
     def predict(self, sensor_data: np.ndarray, crop_id: int,
-                growth_stage: int, fault_mask: np.ndarray = None) -> Tuple[int, float, np.ndarray]:
+                growth_stage: int, fault_mask: np.ndarray = None,
+                image_features: np.ndarray = None) -> Tuple[int, float, np.ndarray]:
         """
         预测病害
 
@@ -182,6 +183,7 @@ class CrossCropDiseaseRecognizer:
             crop_id: 作物ID
             growth_stage: 生长阶段
             fault_mask: 传感器故障掩码 (1=正常, 0=故障)
+            image_features: 图像特征 (128维), 若提供则使用图像分支
 
         Returns:
             disease_id, confidence, all_probabilities
@@ -196,6 +198,22 @@ class CrossCropDiseaseRecognizer:
         # 作物嵌入
         crop_id = min(crop_id, self.n_crops - 1)
         crop_emb = self.crop_embed[crop_id]
+
+        # 图像分支: 如果有图像编码器和图像特征
+        image_logits = None
+        if image_features is not None and hasattr(self, '_image_encoder_W1'):
+            # 标准化
+            if hasattr(self, '_feature_mean'):
+                image_features = (image_features - self._feature_mean) / self._feature_std
+            # 编码
+            h_img = image_features @ self._image_encoder_W1 + self._image_encoder_b1
+            h_img = np.maximum(h_img, 0)
+            latent_img = np.tanh(h_img @ self._image_encoder_W2 + self._image_encoder_b2)
+            # 分类
+            x_img = np.concatenate([latent_img.reshape(1, -1), crop_emb.reshape(1, -1)], axis=1)
+            h_cls = x_img @ self.disease_W1 + self.disease_b1
+            h_cls = np.maximum(h_cls, 0)
+            image_logits = (h_cls @ self.classifier_W + self.classifier_b).flatten()
 
         # 拼接传感器数据和作物嵌入
         x = np.concatenate([obs, crop_emb])
@@ -212,8 +230,14 @@ class CrossCropDiseaseRecognizer:
         # 环境-病害关联
         logits_env = sensor_data @ self.env_disease_W + self.env_disease_b
 
-        # 融合两种信号
-        logits = logits_shared * 0.7 + logits_env * 0.3
+        # 融合: 传感器信号
+        logits_sensor = logits_shared * 0.7 + logits_env * 0.3
+
+        # 最终融合: 图像 + 传感器
+        if image_logits is not None:
+            logits = image_logits * 0.6 + logits_sensor * 0.4
+        else:
+            logits = logits_sensor
 
         # 生长阶段修正: 某些阶段更容易生病
         stage_factor = self._growth_stage_factor(growth_stage)
@@ -265,6 +289,17 @@ class CrossCropDiseaseRecognizer:
         self.classifier_b = np.array(params["classifier_b"])
         self.env_disease_W = np.array(params["env_disease_W"])
         self.env_disease_b = np.array(params["env_disease_b"])
+
+        # 图像编码器权重 (训练后加载)
+        if "image_encoder" in params:
+            enc = params["image_encoder"]
+            self._image_encoder_W1 = np.array(enc["W1"])
+            self._image_encoder_b1 = np.array(enc["b1"])
+            self._image_encoder_W2 = np.array(enc["W2"])
+            self._image_encoder_b2 = np.array(enc["b2"])
+        if "feature_mean" in params:
+            self._feature_mean = np.array(params["feature_mean"])
+            self._feature_std = np.array(params["feature_std"])
 
 
 class IrrigationPolicy:
@@ -572,9 +607,10 @@ class WorldModel:
         # 1. 环境编码
         latent = self.encoder.encode(obs * fault_mask)
 
-        # 2. 病害识别 (跨作物泛化)
+        # 2. 病害识别 (跨作物泛化, 支持图像特征)
+        image_features = data.get("image_features")  # 可选: 128维图像特征
         disease_id, disease_conf, disease_probs = self.disease_recognizer.predict(
-            obs, crop_id, growth_stage, fault_mask
+            obs, crop_id, growth_stage, fault_mask, image_features=image_features
         )
 
         # 3. 灌溉策略

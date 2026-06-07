@@ -34,3 +34,6 @@ nohup.out
 # Simulator runtime data (generated at runtime)
 simulator/data/config.json
 simulator/__pycache__/
+
+# Dataset (too large for git)
+smart-agriculture-atlas200dk/data/plantvillage/
