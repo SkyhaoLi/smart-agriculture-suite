@@ -1,0 +1,29 @@
+#!/bin/bash
+# 智润智慧农业套件 - Atlas 200I DK A2 systemd服务
+# 复制到 /etc/systemd/system/agri-atlas.service 后执行:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable agri-atlas
+#   sudo systemctl start agri-atlas
+
+[Unit]
+Description=Smart Agriculture Suite - Atlas 200I DK A2
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=HwHiAiUser
+Group=HwHiAiUser
+WorkingDirectory=/home/HwHiAiUser/smart-agriculture-atlas200dk
+ExecStart=/usr/bin/python3 /home/HwHiAiUser/smart-agriculture-atlas200dk/main.py --profile 2
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Atlas ACL环境
+Environment=LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/driver/lib64
+Environment=PYTHONPATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages
+
+[Install]
+WantedBy=multi-user.target

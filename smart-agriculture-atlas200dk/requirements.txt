@@ -1,0 +1,16 @@
+# 智润智慧农业套件 - Atlas 200I DK A2 依赖
+# pip install -r requirements.txt
+
+# 核心依赖
+numpy>=1.24.0           # 数值计算 (世界模型, 强化学习)
+flask>=3.0.0            # REST API + 单页前端
+
+# 可选: 传感器硬件 (仅Atlas直连传感器时需要)
+# pyserial>=3.5         # UART空气温湿度传感器
+# smbus2>=0.4.2         # I2C (BH1750光照 + ADS1115 ADC + SSD1306 OLED)
+# gpiod>=1.6,<2.0       # Linux GPIO子系统 (阀门/水泵/蜂鸣器)
+
+# 可选: 摄像头病害检测 (需要时取消注释)
+# opencv-python>=4.8.0  # 摄像头捕获
+# onnxruntime>=1.16.0   # ONNX Runtime推理
+# acl                   # 华为ACL SDK (NPU推理首选)
