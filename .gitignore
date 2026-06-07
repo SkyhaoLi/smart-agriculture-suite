@@ -37,3 +37,6 @@ simulator/__pycache__/
 
 # Dataset (too large for git)
 smart-agriculture-atlas200dk/data/plantvillage/
+
+# PyTorch model (44MB, too large for git - use JSON model instead)
+smart-agriculture-atlas200dk/models/disease_classifier.pth

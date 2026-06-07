@@ -199,45 +199,45 @@ class CrossCropDiseaseRecognizer:
         crop_id = min(crop_id, self.n_crops - 1)
         crop_emb = self.crop_embed[crop_id]
 
-        # 图像分支: 如果有图像编码器和图像特征
+        # 图像分支: 如果有图像特征
         image_logits = None
-        if image_features is not None and hasattr(self, '_image_encoder_W1'):
-            # 标准化
-            if hasattr(self, '_feature_mean'):
-                image_features = (image_features - self._feature_mean) / self._feature_std
-            # 编码
-            h_img = image_features @ self._image_encoder_W1 + self._image_encoder_b1
-            h_img = np.maximum(h_img, 0)
-            latent_img = np.tanh(h_img @ self._image_encoder_W2 + self._image_encoder_b2)
-            # 分类
-            x_img = np.concatenate([latent_img.reshape(1, -1), crop_emb.reshape(1, -1)], axis=1)
-            h_cls = x_img @ self.disease_W1 + self.disease_b1
-            h_cls = np.maximum(h_cls, 0)
-            image_logits = (h_cls @ self.classifier_W + self.classifier_b).flatten()
+        if image_features is not None:
+            if hasattr(self, '_model_version') and self._model_version == "v2":
+                # v2: ResNet18 特征 (512维) + BatchNorm 分类器
+                image_logits = self._predict_v2_image(image_features, crop_id)
+            elif hasattr(self, '_image_encoder_W1'):
+                # v1: 128维手工特征 + 简单 MLP
+                if hasattr(self, '_feature_mean'):
+                    image_features = (image_features - self._feature_mean) / self._feature_std
+                h_img = image_features @ self._image_encoder_W1 + self._image_encoder_b1
+                h_img = np.maximum(h_img, 0)
+                latent_img = np.tanh(h_img @ self._image_encoder_W2 + self._image_encoder_b2)
+                x_img = np.concatenate([latent_img.reshape(1, -1), crop_emb.reshape(1, -1)], axis=1)
+                h_cls = x_img @ self.disease_W1 + self.disease_b1
+                h_cls = np.maximum(h_cls, 0)
+                image_logits = (h_cls @ self.classifier_W + self.classifier_b).flatten()
 
-        # 拼接传感器数据和作物嵌入
-        x = np.concatenate([obs, crop_emb])
+        # 传感器分支 (仅 v1 模型)
+        logits_sensor = None
+        if hasattr(self, 'disease_W1'):
+            x = np.concatenate([obs, crop_emb])
+            h = x @ self.disease_W1 + self.disease_b1
+            h = np.maximum(h, 0)
+            h = h @ self.disease_W2 + self.disease_b2
+            h = np.maximum(h, 0)
+            logits_shared = h @ self.classifier_W + self.classifier_b
+            logits_env = sensor_data @ self.env_disease_W + self.env_disease_b
+            logits_sensor = logits_shared * 0.7 + logits_env * 0.3
 
-        # 共享病害特征提取
-        h = x @ self.disease_W1 + self.disease_b1
-        h = np.maximum(h, 0)  # ReLU
-        h = h @ self.disease_W2 + self.disease_b2
-        h = np.maximum(h, 0)
-
-        # 病害分类 (基于共享特征)
-        logits_shared = h @ self.classifier_W + self.classifier_b
-
-        # 环境-病害关联
-        logits_env = sensor_data @ self.env_disease_W + self.env_disease_b
-
-        # 融合: 传感器信号
-        logits_sensor = logits_shared * 0.7 + logits_env * 0.3
-
-        # 最终融合: 图像 + 传感器
-        if image_logits is not None:
+        # 最终融合
+        if image_logits is not None and logits_sensor is not None:
             logits = image_logits * 0.6 + logits_sensor * 0.4
-        else:
+        elif image_logits is not None:
+            logits = image_logits
+        elif logits_sensor is not None:
             logits = logits_sensor
+        else:
+            logits = np.zeros(self.n_diseases)
 
         # 生长阶段修正: 某些阶段更容易生病
         stage_factor = self._growth_stage_factor(growth_stage)
@@ -249,6 +249,36 @@ class CrossCropDiseaseRecognizer:
         confidence = float(probs[disease_id])
 
         return disease_id, confidence, probs
+
+    def _predict_v2_image(self, image_features: np.ndarray, crop_id: int) -> np.ndarray:
+        """v2 模型图像推理: ResNet18 特征 + BN 分类器"""
+        feat = image_features.flatten()  # 512维
+        crop_emb = self.crop_embed[min(crop_id, self.n_crops - 1)]
+        x = np.concatenate([feat, crop_emb]).reshape(1, -1)  # (1, 528)
+
+        # Layer 1: Linear + BN + ReLU
+        h = x @ self._clf_W1.T + self._clf_b1
+        h = (h - self._clf_bn1_mean) / np.sqrt(self._clf_bn1_var + 1e-5)
+        h = h * self._clf_bn1_weight + self._clf_bn1_bias
+        h = np.maximum(h, 0)
+        # Dropout: eval mode = no-op
+
+        # Layer 2: Linear + BN + ReLU
+        h = h @ self._clf_W2.T + self._clf_b2
+        h = (h - self._clf_bn2_mean) / np.sqrt(self._clf_bn2_var + 1e-5)
+        h = h * self._clf_bn2_weight + self._clf_bn2_bias
+        h = np.maximum(h, 0)
+
+        # Layer 3: Linear
+        logits_main = (h @ self._clf_W3.T + self._clf_b3).flatten()
+
+        # 环境分支
+        logits_env = (feat @ self._env_W1.T + self._env_b1)
+        logits_env = np.maximum(logits_env, 0)
+        logits_env = (logits_env @ self._env_W2.T + self._env_b2).flatten()
+
+        w = self._fusion_weights
+        return logits_main * w[0] + logits_env * w[1]
 
     def _normalize_obs(self, obs: np.ndarray) -> np.ndarray:
         """归一化传感器数据到 [0, 1]"""
@@ -281,16 +311,47 @@ class CrossCropDiseaseRecognizer:
 
     def set_params(self, params: dict):
         self.crop_embed = np.array(params["crop_embed"])
-        self.disease_W1 = np.array(params["disease_W1"])
-        self.disease_b1 = np.array(params["disease_b1"])
-        self.disease_W2 = np.array(params["disease_W2"])
-        self.disease_b2 = np.array(params["disease_b2"])
-        self.classifier_W = np.array(params["classifier_W"])
-        self.classifier_b = np.array(params["classifier_b"])
-        self.env_disease_W = np.array(params["env_disease_W"])
-        self.env_disease_b = np.array(params["env_disease_b"])
 
-        # 图像编码器权重 (训练后加载)
+        # 判断模型版本
+        if params.get("model_type") == "resnet18_pytorch":
+            # v2: PyTorch ResNet18 导出的权重 (带 BatchNorm)
+            self._clf_W1 = np.array(params["classifier_W1"])
+            self._clf_b1 = np.array(params["classifier_b1"])
+            self._clf_bn1_mean = np.array(params["classifier_bn1_mean"])
+            self._clf_bn1_var = np.array(params["classifier_bn1_var"])
+            self._clf_bn1_weight = np.array(params["classifier_bn1_weight"])
+            self._clf_bn1_bias = np.array(params["classifier_bn1_bias"])
+
+            self._clf_W2 = np.array(params["classifier_W2"])
+            self._clf_b2 = np.array(params["classifier_b2"])
+            self._clf_bn2_mean = np.array(params["classifier_bn2_mean"])
+            self._clf_bn2_var = np.array(params["classifier_bn2_var"])
+            self._clf_bn2_weight = np.array(params["classifier_bn2_weight"])
+            self._clf_bn2_bias = np.array(params["classifier_bn2_bias"])
+
+            self._clf_W3 = np.array(params["classifier_W3"])
+            self._clf_b3 = np.array(params["classifier_b3"])
+
+            self._env_W1 = np.array(params["env_W1"])
+            self._env_b1 = np.array(params["env_b1"])
+            self._env_W2 = np.array(params["env_W2"])
+            self._env_b2 = np.array(params["env_b2"])
+
+            self._fusion_weights = params.get("fusion_weights", [0.7, 0.3])
+            self._model_version = "v2"
+        else:
+            # v1: 旧格式
+            self.disease_W1 = np.array(params["disease_W1"])
+            self.disease_b1 = np.array(params["disease_b1"])
+            self.disease_W2 = np.array(params["disease_W2"])
+            self.disease_b2 = np.array(params["disease_b2"])
+            self.classifier_W = np.array(params["classifier_W"])
+            self.classifier_b = np.array(params["classifier_b"])
+            self.env_disease_W = np.array(params["env_disease_W"])
+            self.env_disease_b = np.array(params["env_disease_b"])
+            self._model_version = "v1"
+
+        # 图像编码器权重 (v1 训练后加载)
         if "image_encoder" in params:
             enc = params["image_encoder"]
             self._image_encoder_W1 = np.array(enc["W1"])

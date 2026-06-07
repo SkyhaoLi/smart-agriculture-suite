@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-跨作物病害识别训练脚本
+跨作物病害识别训练脚本 v2
 
-支持两种模式:
-1. 合成数据模式 (默认): 用模拟特征快速训练, 验证架构
-2. 真实数据模式: 用 PlantVillage 图片训练 (需先下载)
+改进:
+1. 修正类别映射 - 去掉 crop_id=None 噪声类, 修正病害对应
+2. 数据增强 - 随机翻转/旋转/颜色抖动
+3. BatchNorm + Dropout 提升泛化
+4. 类别加权 loss 解决不平衡
+5. PyTorch ResNet18 特征提取
 
 用法:
-  python train_cross_crop.py                  # 合成数据训练
-  python train_cross_crop.py --data-dir data/plantvillage  # 真实数据训练
-
-训练完成后权重保存到 models/world_model.json
+  python train_cross_crop.py --data-dir data/plantvillage --epochs 30
+  python train_cross_crop.py --data-dir data/plantvillage --epochs 30 --finetune  # 微调backbone
 """
 
 import os
@@ -22,6 +23,13 @@ import argparse
 import numpy as np
 from pathlib import Path
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import torchvision
+from torchvision import transforms, models
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("train_cross_crop")
 
@@ -32,249 +40,84 @@ MODEL_FILE = MODEL_DIR / "world_model.json"
 CROP_NAMES = {0: "番茄", 1: "生菜", 2: "辣椒", 3: "黄瓜", 4: "草莓"}
 DISEASE_NAMES = {0: "健康", 1: "炭疽病", 2: "灰霉病", 3: "叶灼病", 4: "白粉病"}
 
-# PlantVillage 38类 → 世界模型映射
+# PlantVillage → 世界模型映射 (修正版)
+# 只保留能准确映射的类别, 去掉 crop_id=None 的噪声
 PLANTVILLAGE_MAPPING = {
-    "Apple___Apple_scab":               (None, 1),
-    "Apple___Black_rot":                (None, 1),
-    "Apple___Cedar_apple_rust":         (None, 2),
-    "Apple___healthy":                  (None, 0),
-    "Blueberry___healthy":              (None, 0),
-    "Cherry_(including_sour)___Powdery_mildew": (None, 4),
-    "Cherry_(including_sour)___healthy":        (None, 0),
-    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot": (None, 3),
-    "Corn_(maize)___Common_rust_":               (None, 2),
-    "Corn_(maize)___Northern_Leaf_Blight":       (None, 3),
-    "Corn_(maize)___healthy":                    (None, 0),
-    "Grape___Black_rot":                (None, 1),
-    "Grape___Esca_(Black_Measles)":     (None, 2),
-    "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)": (None, 3),
-    "Grape___healthy":                  (None, 0),
-    "Orange___Haunglongbing_(Citrus_greening)": (None, 3),
-    "Peach___Bacterial_spot":           (None, 1),
-    "Peach___healthy":                  (None, 0),
-    "Pepper,_bell___Bacterial_spot":    (2, 1),
-    "Pepper,_bell___healthy":           (2, 0),
-    "Potato___Early_blight":            (None, 2),
-    "Potato___Late_blight":             (None, 2),
-    "Potato___healthy":                 (None, 0),
-    "Raspberry___healthy":              (None, 0),
-    "Soybean___healthy":                (None, 0),
-    "Squash___Powdery_mildew":          (None, 4),
-    "Strawberry___Leaf_scorch":         (4, 3),
-    "Strawberry___healthy":             (4, 0),
-    "Tomato___Bacterial_spot":          (0, 1),
-    "Tomato___Early_blight":            (0, 2),
-    "Tomato___Late_blight":             (0, 2),
-    "Tomato___Leaf_Mold":               (0, 3),
-    "Tomato___Septoria_leaf_spot":      (0, 3),
-    "Tomato___Spider_mites Two-spotted_spider_mite": (None, 3),
-    "Tomato___Target_Spot":             (None, 3),
-    "Tomato___Tomato_Yellow_Leaf_Curl_Virus": (None, 3),
-    "Tomato___Tomato_mosaic_virus":      (None, 3),
-    "Tomato___healthy":                 (0, 0),
+    # 番茄 (crop_id=0)
+    "Tomato___healthy":                 (0, 0),  # 健康
+    "Tomato___Tomato_Yellow_Leaf_Curl_Virus": (0, 3),  # 叶灼/卷叶
+    "Tomato___Tomato_mosaic_virus":     (0, 3),  # 叶灼
+    "Tomato___Leaf_Mold":               (0, 2),  # 灰霉/霉菌类
+    "Tomato___Early_blight":            (0, 2),  # 灰霉/早疫
+    "Tomato___Late_blight":             (0, 1),  # 炭疽/晚疫(坏死斑)
+    "Tomato___Septoria_leaf_spot":      (0, 3),  # 叶灼/叶斑
+    "Tomato___Bacterial_spot":          (0, 1),  # 炭疽/细菌性斑
+    "Tomato___Target_Spot":             (0, 3),  # 叶灼/靶斑
+    "Tomato___Spider_mites Two-spotted_spider_mite": (0, 3),  # 叶灼/虫害
+    # 辣椒 (crop_id=2)
+    "Pepper,_bell___healthy":           (2, 0),  # 健康
+    "Pepper,_bell___Bacterial_spot":    (2, 1),  # 炭疽/细菌性斑
+    # 草莓 (crop_id=4)
+    "Strawberry___healthy":             (4, 0),  # 健康
+    "Strawberry___Leaf_scorch":         (4, 3),  # 叶灼
+    # 补充白粉病样本 (跨作物, crop_id=0 作为通用)
+    "Cherry_(including_sour)___Powdery_mildew": (0, 4),  # 白粉病
+    "Squash___Powdery_mildew":          (0, 4),  # 白粉病
 }
 
 
 # ============================================================================
-# 合成数据生成
+# 数据集
 # ============================================================================
 
-def generate_synthetic_dataset(n_samples=10000, seed=42):
-    """
-    生成模拟的跨作物病害特征数据
+class PlantVillageDataset(Dataset):
+    """PlantVillage 数据集, 支持数据增强"""
 
-    设计思路: 每种病害有独特的特征模式, 不同作物的相同病害共享核心特征
-    这模拟了 PlantVillage 中 "番茄灰霉病" 和 "辣椒灰霉病" 共享病害特征的情况
-    """
-    rng = np.random.RandomState(seed)
+    def __init__(self, image_paths, crop_ids, disease_ids, transform=None):
+        self.image_paths = image_paths
+        self.crop_ids = crop_ids
+        self.disease_ids = disease_ids
+        self.transform = transform
 
-    features_list = []
-    crop_ids = []
-    disease_ids = []
+    def __len__(self):
+        return len(self.image_paths)
 
-    # 每种病害的基础特征向量 (128维)
-    disease_base = {
-        0: rng.randn(128) * 0.3,           # 健康: 低方差, 均匀分布
-        1: rng.randn(128) * 0.5 + 0.5,     # 炭疽病: 偏暗, 高对比
-        2: rng.randn(128) * 0.4 + 0.3,     # 灰霉病: 中等偏亮
-        3: rng.randn(128) * 0.6 - 0.2,     # 叶灼病: 高方差, 偏暗
-        4: rng.randn(128) * 0.3 + 0.8,     # 白粉病: 偏亮, 低方差
-    }
+    def __getitem__(self, idx):
+        from PIL import Image
+        img = Image.open(self.image_paths[idx]).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img, self.crop_ids[idx], self.disease_ids[idx]
 
-    # 每种作物的颜色偏移 (模拟不同作物叶片颜色差异)
-    crop_offset = {
-        0: rng.randn(128) * 0.15,   # 番茄
-        1: rng.randn(128) * 0.15,   # 生菜
-        2: rng.randn(128) * 0.15,   # 辣椒
-        3: rng.randn(128) * 0.15,   # 黄瓜
-        4: rng.randn(128) * 0.15,   # 草莓
-        -1: np.zeros(128),          # 未知作物 (用于跨作物学习)
-    }
 
-    # 为每种作物-病害组合生成样本
-    # 已知作物 (有明确 crop_id)
-    known_combos = [
-        (0, 0), (0, 1), (0, 2), (0, 3),    # 番茄: 健康/炭疽/灰霉/叶灼
-        (2, 0), (2, 1),                      # 辣椒: 健康/炭疽
-        (4, 0), (4, 3),                      # 草莓: 健康/叶灼
-    ]
-    # 未知作物 (仅用于跨作物学习, crop_id=-1)
-    unknown_combos = [
-        (-1, 0), (-1, 1), (-1, 2), (-1, 3), (-1, 4),  # 所有病害
-    ]
-
-    all_combos = known_combos + unknown_combos
-
-    for crop_id, disease_id in all_combos:
-        # 样本数量: 已知作物多采样, 未知作物少采样
-        if crop_id >= 0:
-            n = n_samples // len(known_combos)
-        else:
-            n = n_samples // len(unknown_combos) // 2
-
-        for _ in range(n):
-            # 特征 = 病害基础 + 作物偏移 + 噪声
-            feat = disease_base[disease_id] + crop_offset[crop_id] + rng.randn(128) * 0.1
-            features_list.append(feat)
-            crop_ids.append(max(crop_id, 0))  # -1 映射到 0 (通用)
-            disease_ids.append(disease_id)
-
-    # 打乱
-    indices = rng.permutation(len(features_list))
-    return (
-        np.array(features_list, dtype=np.float32)[indices],
-        np.array(crop_ids, dtype=np.int32)[indices],
-        np.array(disease_ids, dtype=np.int32)[indices],
-    )
+def get_transforms(train=True, img_size=224):
+    """数据增强 transforms"""
+    if train:
+        return transforms.Compose([
+            transforms.Resize((img_size + 32, img_size + 32)),
+            transforms.RandomCrop(img_size),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.3),
+            transforms.RandomRotation(30),
+            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+            transforms.RandomGrayscale(p=0.05),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
+    else:
+        return transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
 
 
 # ============================================================================
-# 真实数据加载
+# 数据加载
 # ============================================================================
 
-def extract_features(img_bgr):
-    """从图片提取128维特征向量"""
-    import cv2
-    img = cv2.resize(img_bgr, (96, 96))
-
-    # HSV 颜色直方图 (48维)
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    h_hist = cv2.calcHist([hsv], [0], None, [16], [0, 180]).flatten()
-    s_hist = cv2.calcHist([hsv], [1], None, [16], [0, 256]).flatten()
-    v_hist = cv2.calcHist([hsv], [2], None, [16], [0, 256]).flatten()
-    h_hist = h_hist / (h_hist.sum() + 1e-8)
-    s_hist = s_hist / (s_hist.sum() + 1e-8)
-    v_hist = v_hist / (v_hist.sum() + 1e-8)
-    color_hist = np.concatenate([h_hist, s_hist, v_hist])
-
-    # 纹理特征 (32维)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    lap = cv2.Laplacian(gray, cv2.CV_64F)
-    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    mag = np.sqrt(gx**2 + gy**2)
-    texture = np.array([
-        lap.mean(), lap.std(), np.percentile(lap, 25), np.percentile(lap, 75),
-        mag.mean(), mag.std(), np.percentile(mag, 50), np.percentile(mag, 90),
-    ])
-    # Gabor
-    gabor = []
-    for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
-        kernel = cv2.getGaborKernel((21, 21), 4.0, theta, 10.0, 0.5, 0, ktype=cv2.CV_64F)
-        filtered = cv2.filter2D(gray, cv2.CV_64F, kernel)
-        gabor.extend([filtered.mean(), filtered.std()])
-    # 局部方差
-    local_var = []
-    for i in range(4):
-        for j in range(4):
-            patch = gray[i*24:(i+1)*24, j*24:(j+1)*24]
-            local_var.append(patch.var())
-    texture = np.concatenate([texture, np.array(gabor), np.array([np.mean(local_var), np.std(local_var)])])
-    texture = np.pad(texture, (0, 32))[:32]
-
-    # 颜色矩 (9维)
-    color_moments = []
-    for ch in range(3):
-        c = hsv[:, :, ch].astype(np.float64)
-        skew_raw = np.mean((c - c.mean())**3)
-        skew = float(np.cbrt(skew_raw) / 255) if abs(skew_raw) > 1e-12 else 0.0
-        color_moments.extend([c.mean()/255, c.std()/255, skew])
-
-    # 病害区域特征 (39维)
-    dark_ratio = (gray < 80).mean()
-    bright_ratio = (gray > 200).mean()
-    green_mask = (hsv[:,:,0] > 35) & (hsv[:,:,0] < 85) & (hsv[:,:,1] > 50)
-    green_ratio = green_mask.mean()
-    edge_density = cv2.Canny(gray, 50, 150).mean() / 255
-    channel_stats = []
-    for ch in range(3):
-        c = img[:, :, ch].astype(np.float64)
-        channel_stats.extend([c.mean()/255, c.std()/255])
-    sat = hsv[:,:,1].astype(np.float64)
-    grid_means = []
-    for i in range(3):
-        for j in range(3):
-            patch = hsv[i*32:(i+1)*32, j*32:(j+1)*32]
-            grid_means.extend([patch[:,:,0].mean()/180, patch[:,:,1].mean()/255])
-    disease_feat = np.array([dark_ratio, bright_ratio, green_ratio, edge_density] + channel_stats + [sat.mean()/255, sat.std()/255] + grid_means)
-    disease_feat = np.pad(disease_feat, (0, 39))[:39]
-
-    return np.concatenate([color_hist, texture, np.array(color_moments), disease_feat]).astype(np.float32)
-
-
-def download_plantvillage(data_dir):
-    """下载 PlantVillage 数据集"""
-    data_dir = Path(data_dir)
-    color_dir = data_dir / "color"
-
-    # 检查是否已存在
-    if color_dir.exists() and any(color_dir.iterdir()):
-        logger.info(f"数据集已存在: {color_dir}")
-        return True
-
-    import subprocess
-    import shutil
-
-    repo_url = "https://github.com/spMohanty/PlantVillage-Dataset.git"
-    clone_dir = data_dir / "_repo"
-
-    logger.info(f"正在下载 PlantVillage 数据集...")
-    logger.info(f"仓库: {repo_url}")
-    logger.info("(首次约 500MB, 请耐心等待)")
-
-    try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", repo_url, str(clone_dir)],
-            capture_output=True, text=True, timeout=900
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"git clone 失败: {result.stderr[:500]}")
-
-        # 移动 color 目录
-        src = clone_dir / "raw" / "color"
-        if src.exists():
-            shutil.move(str(src), str(color_dir))
-            logger.info(f"已移动到 {color_dir}")
-        else:
-            raise RuntimeError(f"未找到 {src}")
-
-        # 清理
-        shutil.rmtree(str(clone_dir), ignore_errors=True)
-        logger.info("下载完成!")
-        return True
-
-    except Exception as e:
-        logger.error(f"下载失败: {e}")
-        logger.info("请手动下载:")
-        logger.info(f"  git clone --depth 1 {repo_url}")
-        logger.info(f"  然后将 raw/color/ 复制到 {color_dir}/")
-        return False
-
-
-def load_real_dataset(data_dir):
-    """从磁盘加载 PlantVillage 图片"""
-    import cv2
-
+def load_dataset(data_dir):
+    """加载 PlantVillage 数据集, 只保留可映射的类别"""
     data_dir = Path(data_dir)
     search_dirs = [data_dir / "color", data_dir / "raw" / "color", data_dir / "train", data_dir]
     img_root = None
@@ -288,300 +131,406 @@ def load_real_dataset(data_dir):
         return None
 
     logger.info(f"扫描图片目录: {img_root}")
-    features_list, crop_ids, disease_ids = [], [], []
-    total = 0
+    image_paths, crop_ids, disease_ids = [], [], []
+    skipped = 0
 
     for class_dir in sorted(img_root.iterdir()):
         if not class_dir.is_dir():
             continue
 
-        # 匹配映射
-        crop_id, disease_id = None, None
         class_name = class_dir.name
+        crop_id, disease_id = None, None
+
+        # 精确匹配
         for pattern, (c, d) in PLANTVILLAGE_MAPPING.items():
             p = pattern.replace("___", "_").replace(",_", "_").replace(" ", "_").lower()
             n = class_name.replace("___", "_").replace(",_", "_").replace(" ", "_").lower()
-            if p in n or n in p:
+            if p == n or p in n or n in p:
                 crop_id, disease_id = c, d
                 break
 
-        if disease_id is None:
-            parts = class_name.lower().split("___")
-            if len(parts) >= 2:
-                if "tomato" in parts[0]: crop_id = 0
-                elif "pepper" in parts[0]: crop_id = 2
-                elif "strawberry" in parts[0]: crop_id = 4
-                d = parts[1]
-                if "healthy" in d: disease_id = 0
-                elif "bacterial" in d or "black" in d: disease_id = 1
-                elif "blight" in d or "rust" in d or "mold" in d: disease_id = 2
-                elif "scorch" in d or "spot" in d or "leaf_curl" in d: disease_id = 3
-                elif "mildew" in d: disease_id = 4
-
-        if disease_id is None:
+        # 跳过无法映射的类别
+        if crop_id is None or disease_id is None:
+            skipped += 1
+            logger.info(f"  跳过: {class_name}")
             continue
 
+        count = 0
         for img_path in class_dir.glob("*"):
             if img_path.suffix.lower() not in ('.jpg', '.jpeg', '.png', '.bmp'):
                 continue
-            try:
-                img = cv2.imread(str(img_path))
-                if img is None:
-                    continue
-                features_list.append(extract_features(img))
-                crop_ids.append(crop_id if crop_id is not None else 0)
-                disease_ids.append(disease_id)
-                total += 1
-                if total % 2000 == 0:
-                    logger.info(f"  已处理 {total} 张...")
-            except Exception:
-                continue
+            image_paths.append(str(img_path))
+            crop_ids.append(crop_id)
+            disease_ids.append(disease_id)
+            count += 1
 
-    logger.info(f"共加载 {total} 张图片")
-    if total == 0:
+        logger.info(f"  {class_name} → crop={CROP_NAMES[crop_id]}, disease={DISEASE_NAMES[disease_id]}, {count}张")
+
+    logger.info(f"共加载 {len(image_paths)} 张图片, 跳过 {skipped} 个类别")
+    if len(image_paths) == 0:
         return None
-    return np.array(features_list, dtype=np.float32), np.array(crop_ids, dtype=np.int32), np.array(disease_ids, dtype=np.int32)
+
+    return (np.array(image_paths),
+            np.array(crop_ids, dtype=np.int64),
+            np.array(disease_ids, dtype=np.int64))
 
 
 # ============================================================================
-# 模型 (纯 numpy)
+# 模型
 # ============================================================================
 
-class ImageEncoder:
-    """128维特征 → 32维潜在表示"""
-    def __init__(self, input_dim=128, latent_dim=32):
-        self.W1 = np.random.randn(input_dim, 64) * np.sqrt(2.0 / input_dim)
-        self.b1 = np.zeros(64)
-        self.W2 = np.random.randn(64, latent_dim) * np.sqrt(2.0 / 64)
-        self.b2 = np.zeros(latent_dim)
+class DiseaseClassifier(nn.Module):
+    """ResNet18 + BN + Dropout 分类器"""
 
-    def forward(self, x):
-        self._x = x
-        self._h1 = np.maximum(x @ self.W1 + self.b1, 0)
-        self._out = np.tanh(self._h1 @ self.W2 + self.b2)
-        return self._out
+    def __init__(self, n_crops=5, n_diseases=5, pretrained=True, freeze_backbone=True):
+        super().__init__()
 
-    def backward(self, grad_out, lr):
-        grad_h2 = grad_out * (1 - self._out**2)
-        self.W2 -= lr * (self._h1.T @ grad_h2 / len(grad_out))
-        self.b2 -= lr * grad_h2.mean(axis=0)
-        grad_h1 = (grad_h2 @ self.W2.T) * (self._h1 > 0)
-        self.W1 -= lr * (self._x.T @ grad_h1 / len(grad_out))
-        self.b1 -= lr * grad_h1.mean(axis=0)
+        # ResNet18 backbone
+        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
+        resnet = models.resnet18(weights=weights)
 
-    def get_params(self):
-        return {"W1": self.W1.tolist(), "b1": self.b1.tolist(),
-                "W2": self.W2.tolist(), "b2": self.b2.tolist()}
+        # 去掉最后的 fc
+        self.backbone = nn.Sequential(*list(resnet.children())[:-1])  # output: (B, 512, 1, 1)
 
+        if freeze_backbone:
+            for p in self.backbone.parameters():
+                p.requires_grad = False
 
-class CrossCropClassifier:
-    """潜在表示 + 作物嵌入 → 病害分类"""
-    def __init__(self, latent_dim=32, n_crops=5, n_diseases=5):
-        self.n_crops = n_crops
-        self.n_diseases = n_diseases
-        self.crop_embed = np.random.randn(n_crops, 16) * 0.1
-        inp = latent_dim + 16
-        self.W1 = np.random.randn(inp, 64) * np.sqrt(2.0 / inp)
-        self.b1 = np.zeros(64)
-        self.W2 = np.random.randn(64, n_diseases) * np.sqrt(2.0 / 64)
-        self.b2 = np.zeros(n_diseases)
-        self.env_W = np.random.randn(latent_dim, n_diseases) * 0.1
-        self.env_b = np.zeros(n_diseases)
+        # 作物嵌入
+        self.crop_embed = nn.Embedding(n_crops, 16)
 
-    def forward(self, latent, crop_ids):
-        self._latent = latent
-        self._crop_ids = crop_ids
-        crop_emb = self.crop_embed[np.clip(crop_ids, 0, self.n_crops - 1)]
-        self._inp = np.concatenate([latent, crop_emb], axis=1)
-        self._h1 = np.maximum(self._inp @ self.W1 + self.b1, 0)
-        logits_main = self._h1 @ self.W2 + self.b2
-        logits_env = latent @ self.env_W + self.env_b
-        self._logits = logits_main * 0.7 + logits_env * 0.3
-        e = np.exp(self._logits - self._logits.max(axis=1, keepdims=True))
-        self._probs = e / (e.sum(axis=1, keepdims=True) + 1e-8)
-        return self._probs
+        # 分类头: 512 + 16 = 528 → 256 → n_diseases
+        self.classifier = nn.Sequential(
+            nn.Linear(512 + 16, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.4),
+            nn.Linear(256, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(128, n_diseases),
+        )
 
-    def backward(self, targets, lr):
-        n = len(targets)
-        grad_logits = (self._probs - targets) / n
-        # env branch
-        self.env_W -= lr * (self._latent.T @ (grad_logits * 0.3) / n)
-        self.env_b -= lr * (grad_logits * 0.3).mean(axis=0)
-        # main branch
-        gl = grad_logits * 0.7
-        self.W2 -= lr * (self._h1.T @ gl / n)
-        self.b2 -= lr * gl.mean(axis=0)
-        grad_h1 = (gl @ self.W2.T) * (self._h1 > 0)
-        self.W1 -= lr * (self._inp.T @ grad_h1 / n)
-        self.b1 -= lr * grad_h1.mean(axis=0)
-        # crop embed
-        grad_inp = grad_h1 @ self.W1.T
-        grad_ce = grad_inp[:, 32:]
-        for i in range(self.n_crops):
-            mask = self._crop_ids == i
-            if mask.any():
-                self.crop_embed[i] -= lr * grad_ce[mask].mean(axis=0)
+        # 环境分支 (轻量)
+        self.env_branch = nn.Sequential(
+            nn.Linear(512, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, n_diseases),
+        )
 
-    def get_params(self):
-        return {
-            "crop_embed": self.crop_embed.tolist(),
-            "disease_W1": self.W1.tolist(), "disease_b1": self.b1.tolist(),
-            "disease_W2": self.W2.tolist(), "disease_b2": self.b2.tolist(),
-            "classifier_W": self.W2.tolist(), "classifier_b": self.b2.tolist(),
-            "env_disease_W": self.env_W.tolist(), "env_disease_b": self.env_b.tolist(),
-        }
+    def forward(self, images, crop_ids):
+        # backbone 特征
+        feat = self.backbone(images).squeeze(-1).squeeze(-1)  # (B, 512)
+
+        # 作物嵌入
+        crop_emb = self.crop_embed(crop_ids)  # (B, 16)
+
+        # 主分支
+        x = torch.cat([feat, crop_emb], dim=1)  # (B, 528)
+        logits_main = self.classifier(x)
+
+        # 环境分支
+        logits_env = self.env_branch(feat)
+
+        # 融合
+        logits = logits_main * 0.7 + logits_env * 0.3
+        return logits
+
+    def unfreeze_backbone(self, unfreeze_layers=2):
+        """解冻 backbone 最后几层进行微调"""
+        children = list(self.backbone.children())
+        for layer in children[-unfreeze_layers:]:
+            for p in layer.parameters():
+                p.requires_grad = True
+        logger.info(f"已解冻 backbone 最后 {unfreeze_layers} 层")
 
 
 # ============================================================================
 # 训练
 # ============================================================================
 
+def compute_class_weights(disease_ids, n_classes=5):
+    """计算类别权重 (反频率)"""
+    counts = np.bincount(disease_ids, minlength=n_classes).astype(np.float64)
+    counts = np.maximum(counts, 1)
+    weights = counts.sum() / (n_classes * counts)
+    weights = weights / weights.min()  # 归一化, 最小权重=1
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+def train_epoch(model, loader, criterion, optimizer, device):
+    model.train()
+    total_loss, correct, total = 0, 0, 0
+
+    for images, crop_ids, labels in loader:
+        images = images.to(device)
+        crop_ids = crop_ids.to(device)
+        labels = labels.to(device)
+
+        logits = model(images, crop_ids)
+        loss = criterion(logits, labels)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item() * len(images)
+        correct += (logits.argmax(1) == labels).sum().item()
+        total += len(images)
+
+    return total_loss / total, correct / total
+
+
+@torch.no_grad()
+def evaluate(model, loader, criterion, device):
+    model.eval()
+    total_loss, correct, total = 0, 0, 0
+    all_preds, all_labels, all_crops = [], [], []
+
+    for images, crop_ids, labels in loader:
+        images = images.to(device)
+        crop_ids = crop_ids.to(device)
+        labels = labels.to(device)
+
+        logits = model(images, crop_ids)
+        loss = criterion(logits, labels)
+
+        total_loss += loss.item() * len(images)
+        correct += (logits.argmax(1) == labels).sum().item()
+        total += len(images)
+
+        all_preds.extend(logits.argmax(1).cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+        all_crops.extend(crop_ids.cpu().numpy())
+
+    return total_loss / total, correct / total, np.array(all_preds), np.array(all_labels), np.array(all_crops)
+
+
+def export_to_numpy(model, device, img_size=224):
+    """将 PyTorch 模型权重导出为 numpy 格式 (供 world_model.py 推理用)"""
+    model.eval()
+
+    params = {}
+
+    # Backbone: 提取最后几层的特征 (用于 numpy 推理时的简化版本)
+    # 我们导出 classifier 的权重
+    clf = model.classifier
+    params["classifier_W1"] = clf[0].weight.data.cpu().numpy().tolist()
+    params["classifier_b1"] = clf[0].bias.data.cpu().numpy().tolist()
+    params["classifier_bn1_mean"] = clf[1].running_mean.data.cpu().numpy().tolist()
+    params["classifier_bn1_var"] = clf[1].running_var.data.cpu().numpy().tolist()
+    params["classifier_bn1_weight"] = clf[1].weight.data.cpu().numpy().tolist()
+    params["classifier_bn1_bias"] = clf[1].bias.data.cpu().numpy().tolist()
+
+    params["classifier_W2"] = clf[4].weight.data.cpu().numpy().tolist()
+    params["classifier_b2"] = clf[4].bias.data.cpu().numpy().tolist()
+    params["classifier_bn2_mean"] = clf[5].running_mean.data.cpu().numpy().tolist()
+    params["classifier_bn2_var"] = clf[5].running_var.data.cpu().numpy().tolist()
+    params["classifier_bn2_weight"] = clf[5].weight.data.cpu().numpy().tolist()
+    params["classifier_bn2_bias"] = clf[5].bias.data.cpu().numpy().tolist()
+
+    params["classifier_W3"] = clf[8].weight.data.cpu().numpy().tolist()
+    params["classifier_b3"] = clf[8].bias.data.cpu().numpy().tolist()
+
+    # 环境分支
+    env = model.env_branch
+    params["env_W1"] = env[0].weight.data.cpu().numpy().tolist()
+    params["env_b1"] = env[0].bias.data.cpu().numpy().tolist()
+    params["env_W2"] = env[2].weight.data.cpu().numpy().tolist()
+    params["env_b2"] = env[2].bias.data.cpu().numpy().tolist()
+
+    # 作物嵌入
+    params["crop_embed"] = model.crop_embed.weight.data.cpu().numpy().tolist()
+
+    # Backbone 最后一层 (layer4) 的权重用于特征提取
+    # 为了 numpy 推理, 我们用 ResNet18 的 avgpool 输出做简化
+    # 实际推理时需要 PyTorch, 这里保存完整模型路径
+    params["model_type"] = "resnet18_pytorch"
+    params["img_size"] = 224
+    params["fusion_weights"] = [0.7, 0.3]
+
+    return params
+
+
 def train(args):
     logger.info("=" * 60)
-    logger.info("跨作物病害识别训练")
+    logger.info("跨作物病害识别训练 v2 (PyTorch ResNet18)")
     logger.info("=" * 60)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"设备: {device}")
+
     # 加载数据
-    if args.data_dir:
-        data_dir = Path(args.data_dir)
-        # 检查数据是否已存在 (支持 color/ 或 raw/color/ 路径)
-        has_data = False
-        for check in [data_dir / "color", data_dir / "raw" / "color"]:
-            if check.exists() and any(check.iterdir()):
-                has_data = True
-                break
-        if not has_data:
-            logger.info("数据集不存在, 尝试下载...")
-            download_plantvillage(data_dir)
+    data_dir = Path(args.data_dir)
+    result = load_dataset(data_dir)
+    if result is None:
+        logger.error("数据加载失败")
+        return
 
-        logger.info(f"使用真实数据: {data_dir}")
-        result = load_real_dataset(data_dir)
-        if result is None:
-            logger.error("真实数据加载失败, 回退到合成数据")
-            features, crop_ids, disease_ids = generate_synthetic_dataset(args.samples)
-        else:
-            features, crop_ids, disease_ids = result
-    else:
-        logger.info(f"使用合成数据 (n={args.samples})")
-        features, crop_ids, disease_ids = generate_synthetic_dataset(args.samples)
+    image_paths, crop_ids, disease_ids = result
+    n_samples = len(image_paths)
+    logger.info(f"数据集: {n_samples} 样本")
 
-    logger.info(f"数据集: {len(features)} 样本")
+    # 类别统计
     for d in range(5):
-        logger.info(f"  {DISEASE_NAMES[d]}: {(disease_ids == d).sum()}")
+        count = (disease_ids == d).sum()
+        if count > 0:
+            logger.info(f"  {DISEASE_NAMES[d]}: {count} 样本")
 
-    # 划分
-    n = len(features)
-    idx = np.random.permutation(n)
-    split = int(n * 0.8)
-    train_idx, val_idx = idx[:split], idx[split:]
-    X_train, X_val = features[train_idx], features[val_idx]
-    C_train, C_val = crop_ids[train_idx], crop_ids[val_idx]
-    D_train, D_val = disease_ids[train_idx], disease_ids[val_idx]
+    # 类别权重
+    class_weights = compute_class_weights(disease_ids, 5).to(device)
+    logger.info(f"类别权重: {class_weights.cpu().numpy().round(2)}")
 
-    # one-hot
-    def oh(ids, n=5):
-        o = np.zeros((len(ids), n), dtype=np.float32)
-        o[np.arange(len(ids)), ids] = 1.0
-        return o
-    D_train_oh, D_val_oh = oh(D_train), oh(D_val)
+    # 划分 train/val (分层采样)
+    np.random.seed(42)
+    train_idx, val_idx = [], []
+    for d in range(5):
+        idx = np.where(disease_ids == d)[0]
+        np.random.shuffle(idx)
+        split = int(len(idx) * 0.8)
+        train_idx.extend(idx[:split])
+        val_idx.extend(idx[split:])
+    train_idx = np.array(train_idx)
+    val_idx = np.array(val_idx)
+    np.random.shuffle(train_idx)
+    np.random.shuffle(val_idx)
 
-    # 标准化
-    mu, sigma = X_train.mean(0), X_train.std(0) + 1e-8
-    X_train = (X_train - mu) / sigma
-    X_val = (X_val - mu) / sigma
+    logger.info(f"训练集: {len(train_idx)}, 验证集: {len(val_idx)}")
+
+    # Dataset + DataLoader
+    train_transform = get_transforms(train=True, img_size=224)
+    val_transform = get_transforms(train=False, img_size=224)
+
+    train_ds = PlantVillageDataset(
+        image_paths[train_idx], crop_ids[train_idx], disease_ids[train_idx],
+        transform=train_transform,
+    )
+    val_ds = PlantVillageDataset(
+        image_paths[val_idx], crop_ids[val_idx], disease_ids[val_idx],
+        transform=val_transform,
+    )
+
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
+                              num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
+                            num_workers=0, pin_memory=True)
 
     # 模型
-    enc = ImageEncoder(128, 32)
-    cls = CrossCropClassifier(32, 5, 5)
+    model = DiseaseClassifier(
+        n_crops=5, n_diseases=5,
+        pretrained=True,
+        freeze_backbone=not args.finetune,
+    ).to(device)
+
+    # 优化器
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    logger.info(f"可训练参数: {sum(p.numel() for p in trainable_params):,}")
+
+    optimizer = optim.Adam(trainable_params, lr=args.lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     # 训练
-    bs = args.batch_size
-    lr = args.lr
     best_acc = 0
+    best_state = None
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
-    logger.info(f"训练: epochs={args.epochs}, bs={bs}, lr={lr}")
     logger.info("-" * 60)
 
     for epoch in range(args.epochs):
-        perm = np.random.permutation(len(X_train))
-        Xs, Cs, Ds = X_train[perm], C_train[perm], D_train_oh[perm]
-        total_loss, correct, total, nb = 0, 0, 0, 0
+        # 微调: 在第10轮解冻 backbone
+        if args.finetune and epoch == 10:
+            model.unfreeze_backbone(unfreeze_layers=2)
+            optimizer = optim.Adam([
+                {"params": model.backbone.parameters(), "lr": args.lr * 0.1},
+                {"params": model.classifier.parameters(), "lr": args.lr},
+                {"params": model.crop_embed.parameters(), "lr": args.lr},
+                {"params": model.env_branch.parameters(), "lr": args.lr},
+            ], weight_decay=1e-4)
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - epoch)
 
-        for i in range(0, len(Xs), bs):
-            xb, cb, db = Xs[i:i+bs], Cs[i:i+bs], Ds[i:i+bs]
-            latent = enc.forward(xb)
-            probs = cls.forward(latent, cb)
-            loss = -np.mean(np.sum(db * np.log(probs + 1e-8), axis=1))
-            total_loss += loss
-            correct += (probs.argmax(1) == db.argmax(1)).sum()
-            total += len(xb)
-            cls.backward(db, lr)
-            grad_latent = ((probs - db) * 0.7 @ cls.env_W.T) + \
-                          (((probs - db) @ cls.W2.T) * (cls._h1 > 0) @ cls.W1.T)[:, :32]
-            enc.backward(grad_latent, lr)
-            nb += 1
+        t_loss, t_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        v_loss, v_acc, v_preds, v_labels, v_crops = evaluate(model, val_loader, criterion, device)
+        scheduler.step()
 
-        tl, ta = total_loss / nb, correct / total
-        # 验证
-        vlatent = enc.forward(X_val)
-        vprobs = cls.forward(vlatent, C_val)
-        vl = -np.mean(np.sum(D_val_oh * np.log(vprobs + 1e-8), axis=1))
-        va = (vprobs.argmax(1) == D_val_oh.argmax(1)).mean()
+        history["train_loss"].append(t_loss)
+        history["train_acc"].append(t_acc)
+        history["val_loss"].append(v_loss)
+        history["val_acc"].append(v_acc)
 
-        history["train_loss"].append(float(tl))
-        history["train_acc"].append(float(ta))
-        history["val_loss"].append(float(vl))
-        history["val_acc"].append(float(va))
-
-        if va > best_acc:
-            best_acc = va
-        lr *= args.lr_decay
+        if v_acc > best_acc:
+            best_acc = v_acc
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            logger.info(f"Epoch {epoch+1:3d}/{args.epochs} | Train L:{tl:.4f} A:{ta:.4f} | Val L:{vl:.4f} A:{va:.4f} | lr:{lr:.6f}")
+            lr_now = optimizer.param_groups[0]["lr"]
+            logger.info(f"Epoch {epoch+1:3d}/{args.epochs} | "
+                        f"Train L:{t_loss:.4f} A:{t_acc:.4f} | "
+                        f"Val L:{v_loss:.4f} A:{v_acc:.4f} | lr:{lr_now:.6f}")
 
     logger.info("-" * 60)
     logger.info(f"最佳验证准确率: {best_acc:.4f}")
 
-    # 各作物/病害准确率
-    vpred = vprobs.argmax(1)
-    vtrue = D_val_oh.argmax(1)
+    # 加载最佳模型
+    model.load_state_dict(best_state)
+
+    # 最终评估
+    v_loss, v_acc, v_preds, v_labels, v_crops = evaluate(model, val_loader, criterion, device)
+
+    # 各作物准确率
     logger.info("\n各作物准确率:")
     for c in range(5):
-        m = C_val == c
-        if m.sum() > 10:
-            logger.info(f"  {CROP_NAMES[c]}: {(vpred[m]==vtrue[m]).mean():.4f} ({m.sum()}样本)")
+        mask = v_crops == c
+        if mask.sum() > 0:
+            acc = (v_preds[mask] == v_labels[mask]).mean()
+            logger.info(f"  {CROP_NAMES[c]}: {acc:.4f} ({mask.sum()} 样本)")
+
+    # 各病害准确率
     logger.info("\n各病害准确率:")
     for d in range(5):
-        m = vtrue == d
-        if m.sum() > 10:
-            logger.info(f"  {DISEASE_NAMES[d]}: {(vpred[m]==vtrue[m]).mean():.4f} ({m.sum()}样本)")
+        mask = v_labels == d
+        if mask.sum() > 0:
+            acc = (v_preds[mask] == v_labels[mask]).mean()
+            logger.info(f"  {DISEASE_NAMES[d]}: {acc:.4f} ({mask.sum()} 样本)")
 
-    # 保存
+    # 混淆矩阵
+    logger.info("\n混淆矩阵:")
+    cm = np.zeros((5, 5), dtype=int)
+    for t, p in zip(v_labels, v_preds):
+        cm[t][p] += 1
+    header = "       " + " ".join(f"{DISEASE_NAMES[i][:4]:>5}" for i in range(5))
+    logger.info(header)
+    for i in range(5):
+        row = f"{DISEASE_NAMES[i][:6]:>6} " + " ".join(f"{cm[i][j]:5d}" for j in range(5))
+        logger.info(row)
+
+    # 保存模型
     logger.info("\n保存模型...")
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 保存 PyTorch 完整模型
+    torch.save(best_state, MODEL_DIR / "disease_classifier.pth")
+
+    # 导出 numpy 权重 (兼容 world_model.py)
+    np_params = export_to_numpy(model, device)
+    np_params["best_val_acc"] = float(best_acc)
+    np_params["train_samples"] = len(train_idx)
+    np_params["train_epochs"] = args.epochs
+    np_params["data_mode"] = "real_pytorch"
+
     existing = {}
     if MODEL_FILE.exists():
         with open(MODEL_FILE, 'r') as f:
             existing = json.load(f)
-
-    disease_params = cls.get_params()
-    disease_params["image_encoder"] = enc.get_params()
-    disease_params["feature_mean"] = mu.tolist()
-    disease_params["feature_std"] = sigma.tolist()
-    disease_params["train_epochs"] = args.epochs
-    disease_params["best_val_acc"] = float(best_acc)
-    disease_params["train_samples"] = len(X_train)
-    disease_params["data_mode"] = "synthetic" if args.data_dir is None else "real"
-
-    existing["disease"] = disease_params
+    existing["disease"] = np_params
     existing["step_count"] = existing.get("step_count", 0) + args.epochs
 
     with open(MODEL_FILE, 'w') as f:
         json.dump(existing, f, indent=2)
 
-    logger.info(f"模型已保存: {MODEL_FILE} ({MODEL_FILE.stat().st_size/1024:.1f} KB)")
+    logger.info(f"PyTorch 模型: {MODEL_DIR / 'disease_classifier.pth'}")
+    logger.info(f"JSON 模型: {MODEL_FILE} ({MODEL_FILE.stat().st_size / 1024:.1f} KB)")
 
     # 训练曲线
     try:
@@ -607,11 +556,10 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=str, default=None, help="PlantVillage 数据目录")
-    parser.add_argument("--samples", type=int, default=10000, help="合成数据样本数")
-    parser.add_argument("--epochs", type=int, default=50, help="训练轮数")
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=0.005)
-    parser.add_argument("--lr-decay", type=float, default=0.98)
+    parser.add_argument("--data-dir", type=str, required=True, help="PlantVillage 数据目录")
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--finetune", action="store_true", help="微调 backbone (更慢但更准)")
     args = parser.parse_args()
     train(args)
