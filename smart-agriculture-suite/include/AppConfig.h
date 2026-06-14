@@ -18,12 +18,15 @@ struct PinConfig {
     HardwareProfile profile = HardwareProfile::ControllerKit;
     int i2cSda = 8;
     int i2cScl = 9;
-    int airRx = 17;
-    int airTx = 18;
     int soilPin = 1;
-    int liquidPin = 2;
-    int valvePin = 10;
-    int pumpPin = 11;
+    int valveRpwM = 10;     // BTS7960 阀门正转PWM
+    int valveLpwM = 11;     // BTS7960 阀门反转PWM
+    int valveREn = 12;      // BTS7960 阀门正转使能
+    int valveLEn = 13;      // BTS7960 阀门反转使能
+    int pumpRpwM = 14;      // BTS7960 水泵正转PWM
+    int pumpLpwM = 15;      // BTS7960 水泵反转PWM
+    int pumpREn = 16;       // BTS7960 水泵正转使能
+    int pumpLEn = 17;       // BTS7960 水泵反转使能
     int buzzerPin = 5;
 };
 
@@ -47,8 +50,14 @@ inline PinConfig defaultPins() {
             pins.profile = HardwareProfile::CameraEyeStandalone;
             pins.i2cSda = 3;
             pins.i2cScl = 4;
-            pins.valvePin = -1;
-            pins.pumpPin = -1;
+            pins.valveRpwM = -1;
+            pins.valveLpwM = -1;
+            pins.valveREn = -1;
+            pins.valveLEn = -1;
+            pins.pumpRpwM = -1;
+            pins.pumpLpwM = -1;
+            pins.pumpREn = -1;
+            pins.pumpLEn = -1;
             break;
         case HardwareProfile::HybridDevKit:
             pins.profile = HardwareProfile::HybridDevKit;
@@ -67,7 +76,6 @@ inline SystemConfig defaultSystemConfig() {
 }
 
 constexpr unsigned long kSerialBaud = 115200UL;
-constexpr unsigned long kAirSensorBaud = 9600UL;
 constexpr unsigned long kSensorSampleIntervalMs = 2000UL;
 constexpr unsigned long kDisplayPageIntervalMs = 4000UL;
 constexpr unsigned long kDisplayRefreshIntervalMs = 700UL;

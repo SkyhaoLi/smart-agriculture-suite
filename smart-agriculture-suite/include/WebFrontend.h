@@ -101,11 +101,6 @@ select,input{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-ra
      <div class="value">--</div><div class="unit">%</div>
      <div class="fault-tag">故障</div>
     </div>
-    <div class="sensor-card" id="sc-liquid">
-     <div class="label">液位</div>
-     <div class="value">--</div><div class="unit">%</div>
-     <div class="fault-tag">故障</div>
-    </div>
     <div class="sensor-card" id="sc-light">
      <div class="label">光照强度</div>
      <div class="value">--</div><div class="unit">lux</div>
@@ -298,7 +293,6 @@ async function refresh() {
   setSensor('sc-airTemp', s.air_temp?.toFixed(1), f.air, '°C');
   setSensor('sc-airHumi', s.air_humi?.toFixed(1), f.air, '%');
   setSensor('sc-soilHumi', s.soil_humi?.toFixed(1), f.soil, '%');
-  setSensor('sc-liquid', s.liquid_level?.toFixed(1), f.liquid, '%');
   setSensor('sc-light', s.light?.toFixed(0), f.light, 'lux');
 
   const act = s.actuator || {};

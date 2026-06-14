@@ -27,7 +27,6 @@ bool WorldModelClient::sendSensorData(const SensorSnapshot& snapshot, GrowthStag
     req["air_temp"] = snapshot.airTemp;
     req["air_humi"] = snapshot.airHumi;
     req["soil_humi"] = snapshot.soilHumi;
-    req["liquid_level"] = snapshot.liquidLevel;
     req["light"] = snapshot.lightValue;
     req["is_day"] = snapshot.isDay;
     req["growth_stage"] = static_cast<int>(stage);
@@ -37,7 +36,6 @@ bool WorldModelClient::sendSensorData(const SensorSnapshot& snapshot, GrowthStag
     JsonObject faults = req.createNestedObject("faults");
     faults["air"] = snapshot.fault.airFault();
     faults["soil"] = snapshot.fault.soilFault();
-    faults["liquid"] = snapshot.fault.liquidFault();
     faults["light"] = snapshot.fault.lightFault();
 
     String body;

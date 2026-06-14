@@ -4,15 +4,45 @@ namespace agri {
 
 void ActuatorController::begin(const PinConfig& pins) {
     pins_ = pins;
-    if (pins_.valvePin >= 0) {
-        pinMode(pins_.valvePin, OUTPUT);
-        digitalWrite(pins_.valvePin, LOW);
-    }
-    if (pins_.pumpPin >= 0) {
-        pinMode(pins_.pumpPin, OUTPUT);
-        digitalWrite(pins_.pumpPin, LOW);
-    }
+
+    // 初始化BTS7960引脚
+    initBts7960Pin(pins_.valveRpwM, pins_.valveLpwM, pins_.valveREn, pins_.valveLEn);
+    initBts7960Pin(pins_.pumpRpwM, pins_.pumpLpwM, pins_.pumpREn, pins_.pumpLEn);
+
     initialized_ = true;
+}
+
+void ActuatorController::initBts7960Pin(int rpwM, int lpwM, int rEn, int lEn) {
+    if (rpwM >= 0) {
+        pinMode(rpwM, OUTPUT);
+        digitalWrite(rpwM, LOW);
+    }
+    if (lpwM >= 0) {
+        pinMode(lpwM, OUTPUT);
+        digitalWrite(lpwM, LOW);
+    }
+    if (rEn >= 0) {
+        pinMode(rEn, OUTPUT);
+        digitalWrite(rEn, HIGH);  // 使能正转
+    }
+    if (lEn >= 0) {
+        pinMode(lEn, OUTPUT);
+        digitalWrite(lEn, HIGH);  // 使能反转
+    }
+}
+
+void ActuatorController::driveBts7960(int rpwM, int lpwM, int rEn, int lEn, bool on, int speed) {
+    if (on) {
+        // 正转: RPWM输出PWM, LPWM为低
+        if (rpwM >= 0) analogWrite(rpwM, speed);
+        if (lpwM >= 0) digitalWrite(lpwM, LOW);
+        if (rEn >= 0) digitalWrite(rEn, HIGH);
+        if (lEn >= 0) digitalWrite(lEn, HIGH);
+    } else {
+        // 停止: 两个PWM都为低
+        if (rpwM >= 0) digitalWrite(rpwM, LOW);
+        if (lpwM >= 0) digitalWrite(lpwM, LOW);
+    }
 }
 
 void ActuatorController::setManualValve(bool on) {
@@ -38,7 +68,6 @@ void ActuatorController::setManualCombined(bool on) {
 }
 
 bool ActuatorController::startTimedRun(ControlSource source, int durationSec, unsigned long nowMs) {
-    if (status_.lowLiquidLock) return false;
     if (durationSec <= 0) return false;
 
     unsigned long untilMs = nowMs + (unsigned long)durationSec * 1000UL;
@@ -54,16 +83,7 @@ void ActuatorController::stopTimedRun() {
     applyOutputs(false, false, ControlSource::None, 0);
 }
 
-void ActuatorController::update(bool lowLiquidLock, bool baseAutoRequest, unsigned long nowMs) {
-    status_.lowLiquidLock = lowLiquidLock;
-
-    // 安全锁定 - 最高优先级
-    if (lowLiquidLock) {
-        applyOutputs(false, false, ControlSource::SafetyLock, 0);
-        status_.timedRunActive = false;
-        return;
-    }
-
+void ActuatorController::update(bool baseAutoRequest, unsigned long nowMs) {
     // 定时运行中
     if (status_.timedRunActive) {
         if (nowMs >= status_.activeUntilMs) {
@@ -92,13 +112,11 @@ bool ActuatorController::isBusy(unsigned long nowMs) const {
     return status_.timedRunActive && nowMs < status_.activeUntilMs;
 }
 
-void ActuatorController::writePin(int pin, bool high) {
-    if (pin >= 0) digitalWrite(pin, high ? HIGH : LOW);
-}
-
 void ActuatorController::applyOutputs(bool valveOn, bool pumpOn, ControlSource source, unsigned long untilMs) {
-    writePin(pins_.valvePin, valveOn);
-    writePin(pins_.pumpPin, pumpOn);
+    // 驱动BTS7960
+    driveBts7960(pins_.valveRpwM, pins_.valveLpwM, pins_.valveREn, pins_.valveLEn, valveOn);
+    driveBts7960(pins_.pumpRpwM, pins_.pumpLpwM, pins_.pumpREn, pins_.pumpLEn, pumpOn);
+
     status_.valveOn = valveOn;
     status_.pumpOn = pumpOn;
     status_.source = source;

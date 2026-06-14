@@ -92,12 +92,10 @@ void updateFallbackIrrigation(const SensorSnapshot& snap) {
     bool tempPass = snap.fault.airFault() || snap.airTemp > tempThreshold;
     bool humiPass = snap.fault.airFault() || snap.airHumi < humiThreshold;
     bool soilPass = snap.fault.soilFault() || snap.soilHumi < soilThreshold;
-    bool liquidOk = snap.fault.liquidFault() || snap.liquidLevel >= cfg.liquidLevelThreshold;
 
-    gFallbackShouldWater = liquidOk && tempPass && humiPass && soilPass;
+    gFallbackShouldWater = tempPass && humiPass && soilPass;
 
-    if (!liquidOk) gFallbackReason = "液位不足";
-    else if (gFallbackShouldWater) gFallbackReason = "规则引擎:需要灌溉";
+    if (gFallbackShouldWater) gFallbackReason = "规则引擎:需要灌溉";
     else gFallbackReason = "规则引擎:无需灌溉";
 }
 
@@ -134,10 +132,6 @@ void updateDisplay(unsigned long nowMs) {
                 gDisplay.println("Soil: FAULT");
             else
                 gDisplay.printf("Soil: %.0f%%\n", snap.soilHumi);
-            if (snap.fault.liquidFault())
-                gDisplay.println("Liq:  FAULT");
-            else
-                gDisplay.printf("Liq:  %.0f%%\n", snap.liquidLevel);
             if (snap.fault.lightFault())
                 gDisplay.println("Light:FAULT");
             else
@@ -152,9 +146,8 @@ void updateDisplay(unsigned long nowMs) {
             gDisplay.printf("Src:  %s\n", controlSourceName(act.source));
             if (act.timedRunActive) {
                 unsigned long rem = secondsRemaining(nowMs, act.activeUntilMs);
-                gDisplay.printf("Timer:lus\n", rem);
+                gDisplay.printf("Timer:%lus\n", rem);
             }
-            if (act.lowLiquidLock) gDisplay.println("** SAFETY LOCK **");
             break;
         }
         case 2: {
@@ -198,7 +191,6 @@ void handleStatus() {
     doc["air_temp"] = snap.airTemp;
     doc["air_humi"] = snap.airHumi;
     doc["soil_humi"] = snap.soilHumi;
-    doc["liquid_level"] = snap.liquidLevel;
     doc["light"] = snap.lightValue;
     doc["is_day"] = snap.isDay;
     doc["uptime_ms"] = millis();
@@ -210,7 +202,6 @@ void handleStatus() {
     JsonObject faults = doc.createNestedObject("faults");
     faults["air"] = snap.fault.airFault();
     faults["soil"] = snap.fault.soilFault();
-    faults["liquid"] = snap.fault.liquidFault();
     faults["light"] = snap.fault.lightFault();
 
     // 执行器
@@ -220,7 +211,6 @@ void handleStatus() {
     actObj["auto_mode"] = act.autoMode;
     actObj["source"] = controlSourceName(act.source);
     actObj["timed_active"] = act.timedRunActive;
-    actObj["safety_lock"] = act.lowLiquidLock;
 
     // 世界模型
     if (gLastResponse.valid) {
@@ -437,9 +427,7 @@ void loop() {
     }
 
     // 5. 执行器更新
-    bool lowLiquid = !gSensors.snapshot().fault.liquidFault() &&
-                     gSensors.snapshot().liquidLevel < gConfig.liquidSafetyThreshold;
-    gActuator.update(lowLiquid, gFallbackShouldWater, now);
+    gActuator.update(gFallbackShouldWater, now);
 
     // 6. 显示刷新
     updateDisplay(now);

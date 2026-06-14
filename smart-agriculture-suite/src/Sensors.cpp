@@ -5,24 +5,33 @@ namespace agri {
 void SensorHub::begin(const PinConfig& pins) {
     pins_ = pins;
 
-    Serial1.begin(kAirSensorBaud, SERIAL_8N1, pins_.airRx, pins_.airTx);
-
     if (pins_.soilPin >= 0) pinMode(pins_.soilPin, INPUT);
-    if (pins_.liquidPin >= 0) pinMode(pins_.liquidPin, INPUT);
 
+    // 初始化BH1750光照传感器
     lightReady_ = lightMeter_.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
+
+    // 初始化SHT40温湿度传感器
+    shtReady_ = sht40_.begin(&Wire);
+    if (shtReady_) {
+        sht40_.setPrecision(SHT4X_HIGH_PRECISION);
+        sht40_.setHeater(SHT4X_NO_HEATER);
+    }
 }
 
 bool SensorHub::update(unsigned long nowMs) {
     if (nowMs - lastSampleMs_ < kSensorSampleIntervalMs) return false;
     lastSampleMs_ = nowMs;
 
-    // 空气传感器
-    if (Serial1.available()) {
-        lastAirFrame_ = Serial1.readStringUntil('\n');
-        lastAirFrame_.trim();
-        if (lastAirFrame_.length() > 0) {
-            parseAirFrame(lastAirFrame_);
+    // SHT40温湿度传感器
+    if (shtReady_) {
+        sensors_event_t humidity, temp;
+        if (sht40_.getEvent(&humidity, &temp)) {
+            if (temp.temperature > -40.0f && temp.temperature < 80.0f &&
+                humidity.relative_humidity >= 0.0f && humidity.relative_humidity <= 100.0f) {
+                snapshot_.airTemp = temp.temperature;
+                snapshot_.airHumi = humidity.relative_humidity;
+                lastAirOkMs_ = nowMs;
+            }
         }
     }
 
@@ -35,15 +44,6 @@ bool SensorHub::update(unsigned long nowMs) {
             snapshot_.soilHumi = val;
             lastSoilOkMs_ = nowMs;
         }
-    }
-
-    // 液位
-    if (pins_.liquidPin >= 0) {
-        int raw = readAnalogAverage(pins_.liquidPin);
-        float val = map(raw, 500, 3500, 0, 100);
-        val = constrain(val, 0.0f, 100.0f);
-        snapshot_.liquidLevel = val;
-        lastLiquidOkMs_ = nowMs;
     }
 
     // 光照
@@ -61,26 +61,9 @@ bool SensorHub::update(unsigned long nowMs) {
     return true;
 }
 
-void SensorHub::parseAirFrame(const String& frame) {
-    // 格式: "Temp:X,Humi:Y"
-    int tempIdx = frame.indexOf("Temp:");
-    int humiIdx = frame.indexOf("Humi:");
-    if (tempIdx < 0 || humiIdx < 0) return;
-
-    float temp = frame.substring(tempIdx + 5, frame.indexOf(',', tempIdx)).toFloat();
-    float humi = frame.substring(humiIdx + 5).toFloat();
-
-    if (temp > -40.0f && temp < 80.0f && humi >= 0.0f && humi <= 100.0f) {
-        snapshot_.airTemp = temp;
-        snapshot_.airHumi = humi;
-        lastAirOkMs_ = millis();
-    }
-}
-
 void SensorHub::checkFaults(unsigned long nowMs) {
-    snapshot_.fault.airTimeout = (nowMs - lastAirOkMs_ > kSensorFaultTimeoutMs);
+    snapshot_.fault.airTimeout = !shtReady_ || (nowMs - lastAirOkMs_ > kSensorFaultTimeoutMs);
     snapshot_.fault.soilTimeout = (pins_.soilPin < 0) || (nowMs - lastSoilOkMs_ > kSensorFaultTimeoutMs);
-    snapshot_.fault.liquidTimeout = (pins_.liquidPin < 0) || (nowMs - lastLiquidOkMs_ > kSensorFaultTimeoutMs);
     snapshot_.fault.lightTimeout = !lightReady_ || (nowMs - lastLightOkMs_ > kSensorFaultTimeoutMs);
 
     // 范围检查 (仅在传感器有数据时检查)
@@ -89,9 +72,6 @@ void SensorHub::checkFaults(unsigned long nowMs) {
     }
     if (!snapshot_.fault.soilTimeout) {
         snapshot_.fault.soilRange = (snapshot_.soilHumi < 0.0f || snapshot_.soilHumi > 100.0f);
-    }
-    if (!snapshot_.fault.liquidTimeout) {
-        snapshot_.fault.liquidRange = (snapshot_.liquidLevel < 0.0f || snapshot_.liquidLevel > 100.0f);
     }
     if (!snapshot_.fault.lightTimeout) {
         snapshot_.fault.lightRange = (snapshot_.lightValue < 0.0f || snapshot_.lightValue > 200000.0f);

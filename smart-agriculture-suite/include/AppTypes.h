@@ -91,22 +91,19 @@ inline const char* cropNameCn(CropType c) {
 // 传感器故障信息
 // ============================================================================
 struct SensorFault {
-    bool airTimeout = true;     // 空气传感器超时
+    bool airTimeout = true;     // 温湿度传感器(SHT40)超时
     bool soilTimeout = true;    // 土壤传感器超时
-    bool liquidTimeout = true;  // 液位传感器超时
-    bool lightTimeout = true;   // 光照传感器超时
-    bool airRange = false;      // 空气传感器数据异常
+    bool lightTimeout = true;   // 光照传感器(BH1750)超时
+    bool airRange = false;      // 温湿度传感器数据异常
     bool soilRange = false;     // 土壤传感器数据异常
-    bool liquidRange = false;   // 液位传感器数据异常
     bool lightRange = false;    // 光照传感器数据异常
 
     bool anyFault() const {
-        return airTimeout || soilTimeout || liquidTimeout || lightTimeout ||
-               airRange || soilRange || liquidRange || lightRange;
+        return airTimeout || soilTimeout || lightTimeout ||
+               airRange || soilRange || lightRange;
     }
     bool airFault() const { return airTimeout || airRange; }
     bool soilFault() const { return soilTimeout || soilRange; }
-    bool liquidFault() const { return liquidTimeout || liquidRange; }
     bool lightFault() const { return lightTimeout || lightRange; }
 };
 
@@ -117,7 +114,6 @@ struct SensorSnapshot {
     float airTemp = 0.0f;
     float airHumi = 0.0f;
     float soilHumi = 0.0f;
-    float liquidLevel = 0.0f;
     float lightValue = 0.0f;
     bool isDay = true;
     unsigned long updatedAtMs = 0;
@@ -159,7 +155,6 @@ struct ActuatorStatus {
     bool autoMode = true;
     bool manualValve = false;
     bool manualPump = false;
-    bool lowLiquidLock = false;
     bool timedRunActive = false;
     unsigned long activeUntilMs = 0;
     ControlSource source = ControlSource::None;
@@ -174,7 +169,6 @@ inline unsigned long secondsRemaining(unsigned long nowMs, unsigned long untilMs
 // 灌溉阈值配置
 // ============================================================================
 struct IrrigationThresholdConfig {
-    float liquidLevelThreshold = 30.0f;
     float lightDayThreshold = 200.0f;
     float dayAirTempThreshold = 20.0f;
     float dayAirHumiThreshold = 60.0f;
@@ -191,7 +185,6 @@ struct SystemConfig {
     IrrigationThresholdConfig irrigation;
     bool worldModelEnabled = true;
     unsigned long worldModelIntervalMs = 30000;  // 30s
-    float liquidSafetyThreshold = 10.0f;
 };
 
 }  // namespace agri
