@@ -181,29 +181,14 @@ header h1 span { color: var(--accent); }
       <div class="data-row"><span class="data-label">最近检测</span><span class="data-value" id="v_lastDetect">--</span></div>
     </div>
 
-    <!-- Disease Probability Chart -->
+    <!-- Detection History -->
     <div class="card">
-      <div class="card-title">检测概率分布</div>
-      <div class="prob-chart">
-        <div class="prob-bar" id="prob_0" style="height:0;background:var(--green)"><div class="prob-val">--</div></div>
-        <div class="prob-bar" id="prob_1" style="height:0;background:var(--danger)"><div class="prob-val">--</div></div>
-        <div class="prob-bar" id="prob_2" style="height:0;background:var(--warn)"><div class="prob-val">--</div></div>
-        <div class="prob-bar" id="prob_3" style="height:0;background:var(--info)"><div class="prob-val">--</div></div>
-        <div class="prob-bar" id="prob_4" style="height:0;background:var(--danger)"><div class="prob-val">--</div></div>
+      <div class="card-title">检测历史</div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">处理建议</div>
+        <div id="historyTreatment" style="font-size:14px;color:var(--text1);padding:10px;background:rgba(255,255,255,.03);border-radius:6px;">等待检测...</div>
       </div>
-      <div class="prob-labels">
-        <span>健康</span><span>炭疽病</span><span>灰霉病</span><span>叶灼病</span><span>白粉病</span>
-      </div>
-
-      <div style="margin-top:20px;">
-        <div class="card-title" style="margin-bottom:10px;">特征匹配 (泛化识别)</div>
-        <div id="featureMatchContent"><div style="color:var(--text2);font-size:13px;">等待匹配...</div></div>
-      </div>
-
-      <div style="margin-top:20px;">
-        <div class="card-title" style="margin-bottom:10px;">检测历史</div>
-        <div id="historyContent"><div style="color:var(--text2);font-size:13px;">暂无检测记录</div></div>
-      </div>
+      <div id="historyContent"><div style="color:var(--text2);font-size:13px;">暂无检测记录</div></div>
     </div>
 
     <!-- World Model / Fusion (Irrigation) -->
@@ -400,16 +385,16 @@ function updatePlantDoctor(pd) {
   $('v_diseaseDetections').textContent = pd.diseaseDetections || 0;
   $('v_diseaseDetections').style.color = pd.diseaseDetections > 0 ? 'var(--danger)' : 'var(--green)';
   $('v_lastDetect').textContent = pd.lastDetectionTime || '--';
-
-  // Update probability chart
-  if (pd.allProbs) updateProbChart(pd.allProbs);
-
-  // Update feature matches
-  updateFeatureMatches(pd.featureMatches || []);
 }
 
 // Update detection history
-function updateHistory(history) {
+function updateHistory(history, treatment) {
+  // Update treatment suggestion
+  const treatmentEl = $('historyTreatment');
+  if (treatmentEl) {
+    treatmentEl.textContent = treatment || '等待检测...';
+  }
+
   if (!history || history.length === 0) {
     $('historyContent').innerHTML = '<div style="color:var(--text2);font-size:13px;">暂无检测记录</div>';
     return;
@@ -426,47 +411,6 @@ function updateHistory(history) {
     html += '</div>';
   });
   $('historyContent').innerHTML = html;
-}
-
-// Update disease probability chart (if available from detection API)
-function updateProbChart(probs) {
-  if (!probs || probs.length < 5) return;
-  const maxV = Math.max(...probs, 0.01);
-  for (let i = 0; i < 5; i++) {
-    const bar = $('prob_' + i);
-    bar.style.height = (probs[i] / maxV * 100) + '%';
-    bar.querySelector('.prob-val').textContent = (probs[i]*100).toFixed(1) + '%';
-  }
-}
-
-// Update feature matches (generalized disease recognition)
-function updateFeatureMatches(matches) {
-  const container = $('featureMatchContent');
-  if (!matches || matches.length === 0) {
-    container.innerHTML = '<div style="color:var(--text2);font-size:13px;">暂无匹配结果</div>';
-    return;
-  }
-
-  let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
-  matches.forEach((m, i) => {
-    const sim = (m.similarity * 100).toFixed(1);
-    const color = m.similarity > 0.6 ? 'var(--green)' : m.similarity > 0.5 ? 'var(--warn)' : 'var(--text2)';
-    const barWidth = Math.min(100, m.similarity * 100);
-    html += `
-      <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:14px;font-weight:500;">${m.disease}</span>
-          <span style="font-size:13px;color:${color};font-weight:600;">${sim}%</span>
-        </div>
-        <div style="height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;">
-          <div style="height:100%;width:${barWidth}%;background:${color};border-radius:2px;transition:width 0.5s;"></div>
-        </div>
-        ${m.treatment ? `<div style="font-size:11px;color:var(--text2);margin-top:6px;">${m.treatment}</div>` : ''}
-      </div>
-    `;
-  });
-  html += '</div>';
-  container.innerHTML = html;
 }
 
 // Update fusion / irrigation
@@ -586,7 +530,8 @@ async function refresh() {
 
   // Fetch detection history
   const history = await api('/api/plant/history');
-  if (history) updateHistory(history);
+  const pd = data && data.modules ? data.modules.plantDoctor : null;
+  if (history) updateHistory(history, pd ? pd.finalTreatment : '');
 }
 
 // Init

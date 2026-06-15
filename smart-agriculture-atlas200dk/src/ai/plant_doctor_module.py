@@ -650,6 +650,11 @@ class PlantDoctorModule:
                  "treatment": m.get("treatment", "")}
                 for m in self._last_feature_matches
             ],
+            # 检测历史
+            "detectionHistory": [
+                {"diseaseId": r.disease_id, "confidence": r.confidence, "timestamp": r.timestamp}
+                for r in reversed(self._history)
+            ],
         }
         # 添加特征库统计
         if self._feature_extractor:
