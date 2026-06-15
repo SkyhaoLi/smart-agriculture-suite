@@ -365,25 +365,31 @@ async function triggerDetect() {
 function updatePlantDoctor(pd) {
   if (!pd) return;
 
-  const isHealthy = pd.lastDiseaseId === 0;
-  const diseaseName = pd.lastDiseaseNameCn || DISEASE_CN[pd.lastDiseaseId] || '--';
-  const icon = DISEASE_ICONS[pd.lastDiseaseId] || '🌿';
-  const color = DISEASE_COLORS[pd.lastDiseaseId] || 'var(--text)';
+  // 使用综合识别结果
+  const crop = pd.finalCrop || '草莓';
+  const disease = pd.finalDisease || pd.lastDiseaseNameCn || '--';
+  const confidence = pd.finalConfidence || pd.lastConfidence || 0;
+  const treatment = pd.finalTreatment || pd.treatment || '';
+
+  const isHealthy = pd.lastDiseaseId === 0 && confidence < 0.5;
+  const displayName = isHealthy ? `${crop}：健康` : `${crop}：${disease}`;
+  const icon = isHealthy ? '🌿' : '🍂';
+  const color = isHealthy ? 'var(--green)' : 'var(--danger)';
 
   // Badge
-  $('diseaseBadge').textContent = isHealthy ? '健康' : diseaseName;
+  $('diseaseBadge').textContent = isHealthy ? '健康' : disease;
   $('diseaseBadge').className = 'badge ' + (isHealthy ? 'healthy' : 'danger');
 
-  // Disease box
+  // Disease box - 显示"作物：病虫害名称"
   const box = $('diseaseBox');
   box.className = 'disease-box ' + (isHealthy ? 'healthy' : 'disease');
   $('diseaseIcon').textContent = icon;
-  $('diseaseName').textContent = diseaseName;
+  $('diseaseName').textContent = displayName;
   $('diseaseName').style.color = color;
-  $('diseaseConf').textContent = pd.lastConfidence > 0
-    ? `置信度: ${(pd.lastConfidence * 100).toFixed(1)}%`
+  $('diseaseConf').textContent = confidence > 0
+    ? `置信度: ${(confidence * 100).toFixed(1)}%`
     : '等待检测...';
-  $('diseaseTreatment').textContent = pd.treatment || '';
+  $('diseaseTreatment').textContent = treatment;
 
   // Stats
   $('v_engine').textContent = pd.engineType || '--';

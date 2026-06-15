@@ -598,6 +598,27 @@ class PlantDoctorModule:
         return self._model_loaded
 
     def to_dict(self) -> dict:
+        # 综合判断: 如果原模型置信度低且有特征匹配结果，使用特征匹配
+        final_disease = DISEASE_LABELS_CN[self._last_disease_id]
+        final_confidence = self._last_confidence
+        final_treatment = TREATMENTS[self._last_disease_id]
+        final_crop = "草莓"  # 默认作物
+
+        if self._last_confidence < 0.5 and self._last_feature_matches:
+            best_match = self._last_feature_matches[0]
+            final_disease = best_match["disease"]
+            final_confidence = best_match["similarity"]
+            final_treatment = best_match.get("treatment", "")
+            # 从病害名称提取作物
+            if "___" in best_match.get("source", ""):
+                final_crop = best_match["source"].split("___")[0]
+            else:
+                # 从病害中文名推断作物
+                for crop_name in ["番茄", "马铃薯", "玉米", "葡萄", "苹果", "桃", "辣椒", "草莓"]:
+                    if crop_name in final_disease:
+                        final_crop = crop_name
+                        break
+
         result = {
             "enabled": self._enabled,
             "cameraReady": self._camera_ready,
@@ -617,6 +638,11 @@ class PlantDoctorModule:
             "confidenceThreshold": self._confidence_threshold,
             "buzzerEnabled": self._buzzer_enabled,
             "engineType": self._engine_type,
+            # 综合识别结果
+            "finalCrop": final_crop,
+            "finalDisease": final_disease,
+            "finalConfidence": round(final_confidence, 4),
+            "finalTreatment": final_treatment,
             # 特征匹配 (泛化识别)
             "featureMatchEnabled": self._feature_library_loaded,
             "featureMatches": [
