@@ -258,10 +258,13 @@ class WorldModelModule:
     def begin(self, auto_control_enabled=True):
         self._auto_control_enabled = auto_control_enabled
 
+    # 冷启动阶段预测间隔更短（30秒），正常阶段5分钟
+    PREDICT_INTERVAL_COLD = 30.0
+
     def update(self, snapshot, sample_updated, now, actuator):
         # 初始化时间戳，避免首次调用时立即生成预测
         if self._last_predict_time == 0:
-            self._last_predict_time = now
+            self._last_predict_time = now - self.PREDICT_INTERVAL  # 确保首次采样后立即预测
         if self._last_train_time == 0:
             self._last_train_time = now
 
@@ -277,7 +280,9 @@ class WorldModelModule:
             self._train_step()
             self._last_train_time = now
 
-        if now - self._last_predict_time >= self.PREDICT_INTERVAL:
+        # 冷启动阶段更频繁更新预测
+        interval = self.PREDICT_INTERVAL_COLD if self._buffer.count < self.MIN_HISTORY_FOR_GRU else self.PREDICT_INTERVAL
+        if now - self._last_predict_time >= interval:
             self._generate_predictions(now)
             self._last_predict_time = now
 
@@ -294,7 +299,7 @@ class WorldModelModule:
 
     def _generate_predictions(self, now):
         n = self._buffer.count
-        if n < 2:
+        if n < 1:
             return
         if not self._es_initialized:
             return
@@ -342,7 +347,23 @@ class WorldModelModule:
         self._result.risk_horizon = 60 if soil_dry else 0
 
     def _generate_es_predictions(self, now, n):
-        preds = {h: self._es_values.copy() for h in PRED_HORIZONS}
+        # 根据历史趋势做简单线性外推
+        current = self._es_values.copy()
+        trend = np.zeros(OUTPUT_DIM, dtype=np.float32)
+
+        if n >= 3:
+            # 计算最近几分钟的平均变化率（每分钟）
+            recent = self._buffer.get_recent(min(n, 10))[:, :OUTPUT_DIM]
+            if len(recent) >= 2:
+                trend = (recent[-1] - recent[0]) / max(1, len(recent) - 1)
+
+        # 根据时间步长外推，但限制外推幅度避免过度发散
+        preds = {}
+        for h in PRED_HORIZONS:
+            # 限制趋势外推幅度，最多变化5个单位
+            clamped_trend = np.clip(trend * h, -5.0, 5.0)
+            preds[h] = current + clamped_trend
+
         conf = {h: max(0.3, 0.5 + n * 0.02) for h in PRED_HORIZONS}
         self._result = PredictionResult()
         self._result.predicted_temp = {h: float(preds[h][0]) for h in PRED_HORIZONS}
