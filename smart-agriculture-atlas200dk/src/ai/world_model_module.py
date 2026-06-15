@@ -259,6 +259,12 @@ class WorldModelModule:
         self._auto_control_enabled = auto_control_enabled
 
     def update(self, snapshot, sample_updated, now, actuator):
+        # 初始化时间戳，避免首次调用时立即生成预测
+        if self._last_predict_time == 0:
+            self._last_predict_time = now
+        if self._last_train_time == 0:
+            self._last_train_time = now
+
         if sample_updated:
             values = [snapshot.air_temp, snapshot.air_humi,
                       snapshot.soil_humi, snapshot.light_intensity]
@@ -289,6 +295,8 @@ class WorldModelModule:
     def _generate_predictions(self, now):
         n = self._buffer.count
         if n < 2:
+            return
+        if not self._es_initialized:
             return
         if n < self.MIN_HISTORY_FOR_GRU:
             self._generate_es_predictions(now, n)
