@@ -1,5 +1,0 @@
-flask>=3.0
-flask-cors>=4.0
-Pillow>=10.0
-numpy>=1.24
-# tflite-runtime>=2.14.0  # 可选: 植物病害 TFLite 推理 (无则自动降级)
