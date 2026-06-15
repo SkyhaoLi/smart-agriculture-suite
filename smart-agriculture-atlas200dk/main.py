@@ -40,13 +40,14 @@ class SmartAgricultureApp:
 
     def __init__(self, config: SystemConfig = None, pin_config: PinConfig = None,
                  adc_config: ADCConfig = None, web_port: int = 8080,
-                 hw_profile: int = 1, camera_id=0):
+                 hw_profile: int = 1, camera_id=0, demo=False):
         self._config = config or SystemConfig()
         self._pins = pin_config or PinConfig()
         self._adc_cfg = adc_config or ADCConfig()
         self._web_port = web_port
         self._hw_profile = hw_profile
         self._camera_id = camera_id
+        self._demo = demo
 
         self._running = False
         self._sensor_hub = None
@@ -70,7 +71,7 @@ class SmartAgricultureApp:
         print(f"Hardware profile: {['', 'ControllerKit', 'HybridDevKit', 'CameraEye'][self._hw_profile]}")
 
         # 传感器
-        self._sensor_hub = SensorHub(self._pins, self._adc_cfg)
+        self._sensor_hub = SensorHub(self._pins, self._adc_cfg, demo=self._demo)
         self._sensor_hub.begin()
 
         # 执行器
@@ -221,6 +222,8 @@ def main():
                         help='禁用OLED显示')
     parser.add_argument('--debug', action='store_true',
                         help='调试模式')
+    parser.add_argument('--demo', action='store_true',
+                        help='Demo模式 (模拟传感器数据, 无需真实硬件)')
     args = parser.parse_args()
 
     if args.debug:
@@ -242,6 +245,7 @@ def main():
         hw_profile=args.profile,
         web_port=args.port,
         camera_id=camera_id,
+        demo=args.demo,
     )
     app.run()
 

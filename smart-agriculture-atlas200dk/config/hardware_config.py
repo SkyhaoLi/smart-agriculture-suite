@@ -118,8 +118,8 @@ class PinConfig:
     """业务引脚分配 - 对应原ESP32项目的 defaultPins()"""
 
     # 传感器接口
-    air_sensor_uart: str = "/dev/ttyUART2"   # 空气温湿度 UART (UART2: Pin26-TX, Pin31-RX)
-    air_sensor_baud: int = 9600
+    air_sensor_uart: str = "/dev/ttyUSB0"    # 空气温湿度传感器 (USB转串口)
+    air_sensor_baud: int = 115200
 
     soil_adc_chip: str = "/dev/iio:device0"  # 土壤湿度 ADC (需外接ADC模块, Atlas无原生ADC)
     soil_adc_channel: int = 0

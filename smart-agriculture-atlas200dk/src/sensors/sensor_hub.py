@@ -6,36 +6,52 @@
 使用Linux I2C/UART/ADC接口替代ESP32的硬件抽象
 """
 
-import serial
-import smbus2
 import time
 import logging
+import math
+import random
+import json
 from typing import Optional
 
 from config.app_types import SensorSnapshot
 
 logger = logging.getLogger(__name__)
 
+# 尝试导入硬件库，不可用时进入demo模式
+try:
+    import serial
+    import smbus2
+    _HW_AVAILABLE = True
+except ImportError:
+    _HW_AVAILABLE = False
+
 
 class SensorHub:
     """五路传感器管理"""
 
-    def __init__(self, pin_config, adc_config=None):
+    def __init__(self, pin_config, adc_config=None, demo=False):
         self._pins = pin_config
         self._adc_cfg = adc_config
         self._snapshot = SensorSnapshot()
         self._last_sample_time = 0.0
         self._sample_interval = 2.0  # 秒
+        self._demo = demo or not _HW_AVAILABLE
 
-        self._air_serial: Optional[serial.Serial] = None
-        self._i2c_bus: Optional[smbus2.SMBus] = None
-        self._adc_bus: Optional[smbus2.SMBus] = None
+        self._air_serial = None
+        self._i2c_bus = None
+        self._adc_bus = None
         self._last_air_frame = ""
 
         self._initialized = False
+        self._demo_start = time.time()
 
     def begin(self) -> bool:
         """初始化所有传感器接口"""
+        if self._demo:
+            logger.info("传感器Demo模式已启用 (模拟数据)")
+            self._initialized = True
+            return True
+
         success = True
 
         # UART空气温湿度传感器
@@ -46,7 +62,7 @@ class SensorHub:
                 timeout=1.0
             )
             logger.info(f"空气传感器UART已连接: {self._pins.air_sensor_uart}")
-        except serial.SerialException as e:
+        except Exception as e:
             logger.warning(f"空气传感器UART连接失败: {e}")
             success = False
 
@@ -79,6 +95,10 @@ class SensorHub:
 
         self._last_sample_time = now
 
+        if self._demo:
+            self._demo_update(now)
+            return True
+
         # 空气温湿度 (UART)
         self._read_air_sensor()
 
@@ -101,6 +121,36 @@ class SensorHub:
 
         return True
 
+    def _demo_update(self, now):
+        """模拟传感器数据: 日夜循环 + 自然波动"""
+        elapsed = now - self._demo_start
+        # 24小时压缩到10分钟周期
+        t = elapsed / 600.0 * 2 * math.pi
+
+        # 温度: 日间28°C 夜间18°C + 随机波动
+        base_temp = 23.0 + 5.0 * math.sin(t - math.pi / 2)
+        self._snapshot.air_temp = round(base_temp + random.gauss(0, 0.3), 1)
+
+        # 湿度: 与温度反相
+        base_humi = 65.0 - 15.0 * math.sin(t - math.pi / 2)
+        self._snapshot.air_humi = round(max(30, min(95, base_humi + random.gauss(0, 1))), 1)
+
+        # 土壤湿度: 缓慢下降 + 灌溉回升
+        base_soil = 45.0 + 10.0 * math.sin(t * 0.3)
+        self._snapshot.soil_humi = round(max(15, min(80, base_soil + random.gauss(0, 0.5))), 1)
+
+        # 光照: 日间有光 夜间无光
+        hour_phase = (math.sin(t) + 1) / 2  # 0~1
+        if hour_phase > 0.3:
+            base_light = 20000 + 40000 * (hour_phase - 0.3) / 0.7
+        else:
+            base_light = 50
+        self._snapshot.light_intensity = round(max(0, base_light + random.gauss(0, 200)), 1)
+
+        # 日夜判断
+        self._snapshot.is_day = self._snapshot.light_intensity >= 200.0
+        self._snapshot.timestamp = now
+
     @property
     def snapshot(self) -> SensorSnapshot:
         return self._snapshot
@@ -120,13 +170,29 @@ class SensorHub:
             if self._air_serial.in_waiting > 0:
                 line = self._air_serial.readline().decode('utf-8', errors='ignore').strip()
                 if line:
-                    self._parse_air_frame(line)
                     self._last_air_frame = line
+                    if line.startswith('{'):
+                        self._parse_air_frame(line)
+                    # [SOIL]行仅作备用，JSON已包含soil_humi
         except Exception as e:
             logger.debug(f"空气传感器读取异常: {e}")
 
     def _parse_air_frame(self, frame: str):
         try:
+            # JSON格式: {"type":"sensor","air_temp":23.7,"air_humi":46.5,"soil_humi":23,"light":51.6,...}
+            if frame.startswith('{'):
+                data = json.loads(frame)
+                if 'air_temp' in data:
+                    self._snapshot.air_temp = float(data['air_temp'])
+                if 'air_humi' in data:
+                    self._snapshot.air_humi = float(data['air_humi'])
+                if 'soil_humi' in data:
+                    self._snapshot.soil_humi = float(data['soil_humi'])
+                if 'light' in data:
+                    self._snapshot.light_intensity = float(data['light'])
+                return
+
+            # 旧格式: "Temp:XX.X, Humi:XX.X"
             temp_idx = frame.find("Temp:")
             humi_idx = frame.find("Humi:")
             if temp_idx < 0 or humi_idx < 0:
@@ -141,6 +207,18 @@ class SensorHub:
 
             self._snapshot.air_temp = float(temp_str)
             self._snapshot.air_humi = float(humi_str)
+        except (ValueError, IndexError, json.JSONDecodeError):
+            pass
+
+    def _parse_soil_frame(self, frame: str):
+        """解析 [SOIL] pin=4 raw=4095 mv=3159 | G1=763"""
+        try:
+            import re
+            m = re.search(r'raw=(\d+)', frame)
+            if m:
+                raw = int(m.group(1))
+                # 映射: raw 4095=干(0%), raw 1200=湿(100%) — 根据实际校准
+                self._snapshot.soil_humi = round(self._map_constrain(raw, 4095, 1200, 0.0, 100.0), 1)
         except (ValueError, IndexError):
             pass
 
