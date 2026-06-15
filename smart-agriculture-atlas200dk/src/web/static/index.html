@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智润智慧农业套件 - Atlas 200I DK A2</title>
+<style>
+:root {
+  --bg: #0f1923; --card: #1a2734; --border: #2a3f52;
+  --text: #e0e8f0; --text2: #8a9bae; --accent: #00d4aa;
+  --warn: #ff9f43; --danger: #ff4757; --info: #3498db;
+  --green: #2ed573; --blue: #54a0ff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+header { background: linear-gradient(135deg, #1a2734 0%, #0f1923 100%); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+header h1 { font-size: 20px; font-weight: 600; }
+header h1 span { color: var(--accent); }
+.header-info { font-size:12px; color:var(--text2); }
+.status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; animation: pulse 2s infinite; }
+.status-dot.ok { background: var(--green); }
+.status-dot.err { background: var(--danger); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.container { max-width:1200px; margin:0 auto; padding:20px; }
+
+/* Sensor cards */
+.sensor-grid { display:grid; grid-template-columns: repeat(4,1fr); gap:16px; margin-bottom:20px; }
+.sensor-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; position:relative; overflow:hidden; }
+.sensor-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--accent),transparent); }
+.sensor-card .label { font-size:13px; color:var(--text2); margin-bottom:8px; }
+.sensor-card .value { font-size:36px; font-weight:700; line-height:1.2; }
+.sensor-card .unit { font-size:14px; color:var(--text2); margin-left:4px; }
+.sensor-card .sub { font-size:11px; color:var(--text2); margin-top:8px; }
+
+/* Main content */
+.main-grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; overflow:hidden; }
+.card-title { font-size:15px; font-weight:600; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; }
+.badge { font-size:11px; padding:3px 10px; border-radius:10px; background:rgba(0,212,170,.15); color:var(--accent); }
+.badge.warn { background:rgba(255,159,67,.15); color:var(--warn); }
+.badge.danger { background:rgba(255,71,87,.15); color:var(--danger); }
+.badge.healthy { background:rgba(46,213,115,.15); color:var(--green); }
+
+/* Camera */
+.camera-container { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; margin-bottom:12px; }
+.camera-container img { width:100%; height:100%; object-fit:cover; }
+.camera-overlay { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.6); padding:4px 8px; border-radius:4px; font-size:11px; }
+.camera-status { position:absolute; top:8px; right:8px; width:8px; height:8px; border-radius:50%; }
+.camera-status.live { background:var(--green); animation:pulse 2s infinite; }
+.camera-status.off { background:var(--danger); }
+
+/* Disease detection */
+.disease-box { text-align:center; padding:20px; border-radius:8px; margin:12px 0; }
+.disease-box.healthy { background:rgba(46,213,115,.1); border:1px solid rgba(46,213,115,.3); }
+.disease-box.disease { background:rgba(255,71,87,.1); border:1px solid rgba(255,71,87,.3); }
+.disease-icon { font-size:48px; margin-bottom:8px; }
+.disease-name { font-size:24px; font-weight:700; }
+.disease-confidence { font-size:14px; color:var(--text2); margin-top:4px; }
+.disease-treatment { font-size:13px; color:var(--text2); margin-top:12px; padding:10px; background:rgba(255,255,255,.03); border-radius:6px; text-align:left; line-height:1.6; }
+
+.data-row { display:flex; justify-content:space-between; padding:8px 0; font-size:14px; border-bottom:1px solid rgba(255,255,255,.05); }
+.data-row:last-child { border:none; }
+.data-label { color:var(--text2); }
+.data-value { font-weight:500; }
+
+/* NN bars for disease probabilities */
+.prob-chart { display:flex; gap:6px; align-items:flex-end; height:80px; margin:12px 0; }
+.prob-bar { flex:1; border-radius:4px 4px 0 0; transition:height .5s; min-height:4px; position:relative; display:flex; flex-direction:column; justify-content:flex-end; }
+.prob-val { text-align:center; font-size:10px; color:var(--text2); margin-bottom:2px; }
+.prob-labels { display:flex; gap:6px; }
+.prob-labels span { flex:1; text-align:center; font-size:10px; color:var(--text2); line-height:1.3; }
+
+/* Detection history */
+.history-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.03); font-size:13px; }
+.history-item:last-child { border:none; }
+.history-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.history-dot.healthy { background:var(--green); }
+.history-dot.disease { background:var(--danger); }
+.history-time { color:var(--text2); font-size:11px; margin-left:auto; }
+
+/* Fusion channels */
+.channel-item { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.03); }
+.channel-item:last-child { border:none; }
+.ch-header { display:flex; justify-content:space-between; font-size:13px; }
+.ch-name { color:var(--text); }
+.ch-val { color:var(--accent); font-weight:500; }
+.ch-detail { display:flex; gap:12px; font-size:11px; color:var(--text2); margin-top:4px; }
+.ch-bar { height:4px; border-radius:2px; background:rgba(255,255,255,.08); margin-top:4px; overflow:hidden; }
+.ch-bar-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--blue),var(--accent)); transition:width .5s; }
+
+/* World Model Prediction */
+.pred-grid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.pred-card { background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center; }
+.pred-card .pred-label { font-size:11px; color:var(--text2); margin-bottom:6px; }
+.pred-card .pred-values { display:flex; justify-content:space-around; margin-top:8px; }
+.pred-card .pred-item { text-align:center; }
+.pred-card .pred-horizon { font-size:10px; color:var(--text2); }
+.pred-card .pred-val { font-size:16px; font-weight:600; }
+.pred-card .pred-current { font-size:22px; font-weight:700; margin-bottom:4px; }
+.pred-risk { padding:10px; border-radius:6px; margin-top:8px; font-size:13px; text-align:center; }
+.pred-risk.low { background:rgba(46,213,115,.1); border:1px solid rgba(46,213,115,.3); color:var(--green); }
+.pred-risk.medium { background:rgba(255,159,67,.1); border:1px solid rgba(255,159,67,.3); color:var(--warn); }
+.pred-risk.high { background:rgba(255,71,87,.1); border:1px solid rgba(255,71,87,.3); color:var(--danger); }
+.pred-meta { display:flex; gap:16px; font-size:11px; color:var(--text2); margin-top:8px; justify-content:center; }
+
+@media(max-width:900px) {
+  .sensor-grid { grid-template-columns: repeat(2,1fr); }
+  .main-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>智润</span> 智慧农业套件 <span style="font-size:12px;color:var(--text2)">Atlas 200I DK A2</span></h1>
+  <div class="header-info">
+    <span class="status-dot ok" id="connDot"></span>
+    <span id="connText">连接中...</span>
+    &nbsp;|&nbsp; <span id="uptimeText">--</span>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Sensor Data -->
+  <div class="sensor-grid">
+    <div class="sensor-card">
+      <div class="label">空气温度</div>
+      <div><span class="value" id="v_airTemp">--</span><span class="unit">°C</span></div>
+      <div class="sub" id="s_airTemp"></div>
+    </div>
+    <div class="sensor-card">
+      <div class="label">空气湿度</div>
+      <div><span class="value" id="v_airHumi">--</span><span class="unit">%</span></div>
+      <div class="sub" id="s_airHumi"></div>
+    </div>
+    <div class="sensor-card">
+      <div class="label">土壤湿度</div>
+      <div><span class="value" id="v_soilHumi">--</span><span class="unit">%</span></div>
+      <div class="sub" id="s_soilHumi"></div>
+    </div>
+    <div class="sensor-card">
+      <div class="label">光照强度</div>
+      <div><span class="value" id="v_light">--</span><span class="unit">lux</span></div>
+      <div class="sub" id="s_light"></div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-grid">
+    <!-- Camera Feed -->
+    <div class="card">
+      <div class="card-title">实时视频 <span class="badge" id="cameraBadge">连接中...</span></div>
+      <div class="camera-container" id="cameraContainer">
+        <div class="camera-overlay">LIVE</div>
+        <div class="camera-status off" id="cameraStatus"></div>
+        <div id="cameraPlaceholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text2)">等待摄像头连接...</div>
+      </div>
+      <div style="text-align:center; display:flex; gap:8px; justify-content:center;">
+        <button onclick="refreshCamera()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.05);color:var(--text);cursor:pointer;">刷新画面</button>
+        <button onclick="triggerDetect()" style="padding:8px 16px;border:1px solid var(--accent);border-radius:6px;background:rgba(0,212,170,.1);color:var(--accent);cursor:pointer;">立即检测</button>
+      </div>
+    </div>
+
+    <!-- Plant Disease Detection -->
+    <div class="card">
+      <div class="card-title">病虫害检测 <span class="badge healthy" id="diseaseBadge">--</span></div>
+      <div id="diseaseBox" class="disease-box healthy">
+        <div class="disease-icon" id="diseaseIcon">🌿</div>
+        <div class="disease-name" id="diseaseName">--</div>
+        <div class="disease-confidence" id="diseaseConf">等待检测...</div>
+        <div class="disease-treatment" id="diseaseTreatment"></div>
+      </div>
+
+      <div class="data-row"><span class="data-label">推理引擎</span><span class="data-value" id="v_engine">--</span></div>
+      <div class="data-row"><span class="data-label">摄像头状态</span><span class="data-value" id="v_cameraReady">--</span></div>
+      <div class="data-row"><span class="data-label">检测间隔</span><span class="data-value" id="v_interval">--</span></div>
+      <div class="data-row"><span class="data-label">累计检测</span><span class="data-value" id="v_totalDetections">--</span></div>
+      <div class="data-row"><span class="data-label">病害检出</span><span class="data-value" id="v_diseaseDetections">--</span></div>
+      <div class="data-row"><span class="data-label">最近检测</span><span class="data-value" id="v_lastDetect">--</span></div>
+    </div>
+
+    <!-- Disease Probability Chart -->
+    <div class="card">
+      <div class="card-title">检测概率分布</div>
+      <div class="prob-chart">
+        <div class="prob-bar" id="prob_0" style="height:0;background:var(--green)"><div class="prob-val">--</div></div>
+        <div class="prob-bar" id="prob_1" style="height:0;background:var(--danger)"><div class="prob-val">--</div></div>
+        <div class="prob-bar" id="prob_2" style="height:0;background:var(--warn)"><div class="prob-val">--</div></div>
+        <div class="prob-bar" id="prob_3" style="height:0;background:var(--info)"><div class="prob-val">--</div></div>
+        <div class="prob-bar" id="prob_4" style="height:0;background:var(--danger)"><div class="prob-val">--</div></div>
+      </div>
+      <div class="prob-labels">
+        <span>健康</span><span>炭疽病</span><span>灰霉病</span><span>叶灼病</span><span>白粉病</span>
+      </div>
+
+      <div style="margin-top:20px;">
+        <div class="card-title" style="margin-bottom:10px;">特征匹配 (泛化识别)</div>
+        <div id="featureMatchContent"><div style="color:var(--text2);font-size:13px;">等待匹配...</div></div>
+      </div>
+
+      <div style="margin-top:20px;">
+        <div class="card-title" style="margin-bottom:10px;">检测历史</div>
+        <div id="historyContent"><div style="color:var(--text2);font-size:13px;">暂无检测记录</div></div>
+      </div>
+    </div>
+
+    <!-- World Model / Fusion (Irrigation) -->
+    <div class="card">
+      <div class="card-title">灌溉决策 <span class="badge" id="fusionBadge">--</span></div>
+      <div id="decisionBox" class="disease-box healthy">
+        <div class="disease-name" id="decisionText" style="font-size:20px;">--</div>
+        <div class="disease-confidence" id="decisionDesc">等待数据...</div>
+      </div>
+
+      <div class="data-row"><span class="data-label">置信度</span><span class="data-value" id="v_confidence">--</span></div>
+      <div class="data-row"><span class="data-label">需求评分</span><span class="data-value" id="v_needScore">--</span></div>
+      <div class="data-row"><span class="data-label">神经网络评分</span><span class="data-value" id="v_nnScore">--</span></div>
+
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">灌溉神经网络输出</div>
+        <div class="prob-chart" style="height:50px;">
+          <div class="prob-bar" id="nn_none" style="height:0;background:var(--green)"><div class="prob-val">--</div></div>
+          <div class="prob-bar" id="nn_moderate" style="height:0;background:var(--warn)"><div class="prob-val">--</div></div>
+          <div class="prob-bar" id="nn_heavy" style="height:0;background:var(--danger)"><div class="prob-val">--</div></div>
+        </div>
+        <div class="prob-labels"><span>无需灌溉</span><span>中度灌溉</span><span>重度灌溉</span></div>
+      </div>
+    </div>
+
+    <!-- Fusion Channels Detail -->
+    <div class="card" style="grid-column:1/-1;">
+      <div class="card-title">传感器融合通道</div>
+      <div id="channelsContent"></div>
+    </div>
+
+    <!-- World Model / Environmental Prediction -->
+    <div class="card" style="grid-column:1/-1;">
+      <div class="card-title">环境状态预测 <span class="badge" id="wmModeBadge">冷启动</span></div>
+      <div class="pred-grid">
+        <div class="pred-card">
+          <div class="pred-label">气温 (°C)</div>
+          <div class="pred-current" id="wm_cur_temp">--</div>
+          <div class="pred-values">
+            <div class="pred-item"><div class="pred-horizon">15min</div><div class="pred-val" id="wm_temp_15">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">30min</div><div class="pred-val" id="wm_temp_30">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">60min</div><div class="pred-val" id="wm_temp_60">--</div></div>
+          </div>
+        </div>
+        <div class="pred-card">
+          <div class="pred-label">气湿 (%)</div>
+          <div class="pred-current" id="wm_cur_humi">--</div>
+          <div class="pred-values">
+            <div class="pred-item"><div class="pred-horizon">15min</div><div class="pred-val" id="wm_humi_15">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">30min</div><div class="pred-val" id="wm_humi_30">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">60min</div><div class="pred-val" id="wm_humi_60">--</div></div>
+          </div>
+        </div>
+        <div class="pred-card">
+          <div class="pred-label">土湿 (%)</div>
+          <div class="pred-current" id="wm_cur_soil">--</div>
+          <div class="pred-values">
+            <div class="pred-item"><div class="pred-horizon">15min</div><div class="pred-val" id="wm_soil_15">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">30min</div><div class="pred-val" id="wm_soil_30">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">60min</div><div class="pred-val" id="wm_soil_60">--</div></div>
+          </div>
+        </div>
+        <div class="pred-card">
+          <div class="pred-label">光照 (lux)</div>
+          <div class="pred-current" id="wm_cur_light">--</div>
+          <div class="pred-values">
+            <div class="pred-item"><div class="pred-horizon">15min</div><div class="pred-val" id="wm_light_15">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">30min</div><div class="pred-val" id="wm_light_30">--</div></div>
+            <div class="pred-item"><div class="pred-horizon">60min</div><div class="pred-val" id="wm_light_60">--</div></div>
+          </div>
+        </div>
+      </div>
+      <div id="wmRiskBox" class="pred-risk low">等待预测数据...</div>
+      <div class="pred-meta">
+        <span>模型: <span id="wmMode">--</span></span>
+        <span>训练步: <span id="wmTrainSteps">0</span></span>
+        <span>损失: <span id="wmLoss">--</span></span>
+        <span>缓冲: <span id="wmBuffer">0</span>min</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let tick = 0;
+let cameraRetry = 0;
+
+const DISEASE_CN = ['健康', '炭疽病', '灰霉病', '叶灼病', '白粉病'];
+const DISEASE_EN = ['Healthy', 'Anthracnose', 'Gray_Mold', 'Leaf_Scorch', 'Powdery_Mildew'];
+const DISEASE_ICONS = ['🌿', '🔬', '🦠', '🍂', '🤍'];
+const DISEASE_COLORS = ['var(--green)', 'var(--danger)', 'var(--warn)', 'var(--info)', 'var(--danger)'];
+
+async function api(path, opts) {
+  try {
+    const r = await fetch(API + path, opts);
+    return await r.json();
+  } catch(e) {
+    console.error('API error:', path, e);
+    return null;
+  }
+}
+
+function $(id) { return document.getElementById(id); }
+function fmt(v, d=1) { return v != null ? Number(v).toFixed(d) : '--'; }
+
+// Update sensor cards
+function updateSensors(s) {
+  if (!s) return;
+  $('v_airTemp').textContent = fmt(s.airTemp);
+  $('v_airHumi').textContent = fmt(s.airHumi);
+  $('v_soilHumi').textContent = fmt(s.soilHumi);
+  $('v_light').textContent = fmt(s.lightValue, 0);
+
+  const soilColor = s.soilHumi < 30 ? 'var(--danger)' : s.soilHumi < 50 ? 'var(--warn)' : 'var(--accent)';
+  $('v_soilHumi').style.color = soilColor;
+
+  const lightColor = s.lightValue < 100 ? 'var(--warn)' : 'var(--accent)';
+  $('v_light').style.color = lightColor;
+}
+
+// Update camera
+function updateCamera() {
+  const img = $('cameraContainer').querySelector('img');
+  if (img) {
+    img.src = API + '/api/plant/stream?t=' + Date.now();
+  } else {
+    const newImg = document.createElement('img');
+    newImg.onload = () => {
+      $('cameraPlaceholder').style.display = 'none';
+      $('cameraStatus').className = 'camera-status live';
+      $('cameraBadge').textContent = '在线';
+      $('cameraBadge').className = 'badge';
+      cameraRetry = 0;
+    };
+    newImg.onerror = () => {
+      $('cameraStatus').className = 'camera-status off';
+      $('cameraBadge').textContent = '离线';
+      $('cameraBadge').className = 'badge danger';
+      cameraRetry++;
+    };
+    newImg.src = API + '/api/plant/stream?t=' + Date.now();
+    $('cameraContainer').appendChild(newImg);
+  }
+}
+
+function refreshCamera() {
+  const img = $('cameraContainer').querySelector('img');
+  if (img) img.src = API + '/api/plant/stream?t=' + Date.now();
+  else updateCamera();
+}
+
+async function triggerDetect() {
+  const data = await api('/api/plant/detect');
+  if (data) updatePlantDoctor(data);
+}
+
+// Update plant disease detection
+function updatePlantDoctor(pd) {
+  if (!pd) return;
+
+  const isHealthy = pd.lastDiseaseId === 0;
+  const diseaseName = pd.lastDiseaseNameCn || DISEASE_CN[pd.lastDiseaseId] || '--';
+  const icon = DISEASE_ICONS[pd.lastDiseaseId] || '🌿';
+  const color = DISEASE_COLORS[pd.lastDiseaseId] || 'var(--text)';
+
+  // Badge
+  $('diseaseBadge').textContent = isHealthy ? '健康' : diseaseName;
+  $('diseaseBadge').className = 'badge ' + (isHealthy ? 'healthy' : 'danger');
+
+  // Disease box
+  const box = $('diseaseBox');
+  box.className = 'disease-box ' + (isHealthy ? 'healthy' : 'disease');
+  $('diseaseIcon').textContent = icon;
+  $('diseaseName').textContent = diseaseName;
+  $('diseaseName').style.color = color;
+  $('diseaseConf').textContent = pd.lastConfidence > 0
+    ? `置信度: ${(pd.lastConfidence * 100).toFixed(1)}%`
+    : '等待检测...';
+  $('diseaseTreatment').textContent = pd.treatment || '';
+
+  // Stats
+  $('v_engine').textContent = pd.engineType || '--';
+  $('v_cameraReady').textContent = pd.cameraReady ? '已连接' : '未连接';
+  $('v_cameraReady').style.color = pd.cameraReady ? 'var(--green)' : 'var(--danger)';
+  $('v_interval').textContent = pd.detectInterval ? pd.detectInterval + 's' : '--';
+  $('v_totalDetections').textContent = pd.totalDetections || 0;
+  $('v_diseaseDetections').textContent = pd.diseaseDetections || 0;
+  $('v_diseaseDetections').style.color = pd.diseaseDetections > 0 ? 'var(--danger)' : 'var(--green)';
+  $('v_lastDetect').textContent = pd.lastDetectionTime || '--';
+
+  // Update probability chart
+  if (pd.allProbs) updateProbChart(pd.allProbs);
+
+  // Update feature matches
+  updateFeatureMatches(pd.featureMatches || []);
+}
+
+// Update detection history
+function updateHistory(history) {
+  if (!history || history.length === 0) {
+    $('historyContent').innerHTML = '<div style="color:var(--text2);font-size:13px;">暂无检测记录</div>';
+    return;
+  }
+  let html = '';
+  history.forEach(h => {
+    const isHealthy = h.diseaseId === 0;
+    const name = DISEASE_CN[h.diseaseId] || '未知';
+    html += '<div class="history-item">';
+    html += `<div class="history-dot ${isHealthy ? 'healthy' : 'disease'}"></div>`;
+    html += `<span>${name}</span>`;
+    html += `<span style="color:var(--text2);">(${(h.confidence*100).toFixed(1)}%)</span>`;
+    html += `<span class="history-time">${h.timestamp || ''}</span>`;
+    html += '</div>';
+  });
+  $('historyContent').innerHTML = html;
+}
+
+// Update disease probability chart (if available from detection API)
+function updateProbChart(probs) {
+  if (!probs || probs.length < 5) return;
+  const maxV = Math.max(...probs, 0.01);
+  for (let i = 0; i < 5; i++) {
+    const bar = $('prob_' + i);
+    bar.style.height = (probs[i] / maxV * 100) + '%';
+    bar.querySelector('.prob-val').textContent = (probs[i]*100).toFixed(1) + '%';
+  }
+}
+
+// Update feature matches (generalized disease recognition)
+function updateFeatureMatches(matches) {
+  const container = $('featureMatchContent');
+  if (!matches || matches.length === 0) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:13px;">暂无匹配结果</div>';
+    return;
+  }
+
+  let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  matches.forEach((m, i) => {
+    const sim = (m.similarity * 100).toFixed(1);
+    const color = m.similarity > 0.6 ? 'var(--green)' : m.similarity > 0.5 ? 'var(--warn)' : 'var(--text2)';
+    const barWidth = Math.min(100, m.similarity * 100);
+    html += `
+      <div style="background:rgba(255,255,255,.03);border-radius:6px;padding:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:14px;font-weight:500;">${m.disease}</span>
+          <span style="font-size:13px;color:${color};font-weight:600;">${sim}%</span>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;">
+          <div style="height:100%;width:${barWidth}%;background:${color};border-radius:2px;transition:width 0.5s;"></div>
+        </div>
+        ${m.treatment ? `<div style="font-size:11px;color:var(--text2);margin-top:6px;">${m.treatment}</div>` : ''}
+      </div>
+    `;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// Update fusion / irrigation
+function updateFusion(m) {
+  if (!m) return;
+  const d = m.fusion || m;
+
+  const decisions = {none:'无需灌溉', moderate:'中度灌溉', heavy:'重度灌溉'};
+  const decColors = {none:'var(--green)', moderate:'var(--warn)', heavy:'var(--danger)'};
+
+  $('fusionBadge').textContent = decisions[d.decision] || '--';
+  $('fusionBadge').style.color = decColors[d.decision] || 'var(--text2)';
+
+  const box = $('decisionBox');
+  box.className = 'disease-box ' + (d.decision === 'none' ? 'healthy' : 'disease');
+  $('decisionText').textContent = decisions[d.decision] || '--';
+  $('decisionText').style.color = decColors[d.decision] || 'var(--text)';
+  $('decisionDesc').textContent = `置信度: ${fmt(d.confidence*100, 1)}%`;
+
+  $('v_confidence').textContent = fmt(d.confidence*100, 1) + '%';
+  $('v_needScore').textContent = fmt(d.needScore);
+  $('v_nnScore').textContent = fmt(d.nnScore);
+
+  if (d.nn) {
+    const vals = [d.nn.none, d.nn.moderate, d.nn.heavy];
+    const maxV = Math.max(...vals, 0.01);
+    const ids = ['nn_none', 'nn_moderate', 'nn_heavy'];
+    ids.forEach((id, i) => {
+      const bar = $(id);
+      bar.style.height = (vals[i] / maxV * 100) + '%';
+      bar.querySelector('.prob-val').textContent = (vals[i]*100).toFixed(1) + '%';
+    });
+  }
+
+  if (d.sensors) {
+    let ch = '';
+    d.sensors.forEach(c => {
+      ch += '<div class="channel-item">';
+      ch += `<div class="ch-header"><span class="ch-name">${c.label} (${c.unit})</span><span class="ch-val">${fmt(c.filtered)} ${c.healthy?'':'⚠️'}</span></div>`;
+      ch += `<div class="ch-detail"><span>原始: ${fmt(c.raw)}</span><span>归一化: ${fmt(c.normalized,3)}</span><span>可靠度: ${fmt(c.reliability,2)}</span><span>权重: ${fmt(c.weight,3)}</span></div>`;
+      ch += `<div class="ch-bar"><div class="ch-bar-fill" style="width:${c.normalized*100}%"></div></div>`;
+      ch += '</div>';
+    });
+    $('channelsContent').innerHTML = ch;
+  }
+}
+
+// Update world model predictions
+function updateWorldModel(wm) {
+  if (!wm || !wm.predictions) return;
+
+  // Mode badge
+  const modeLabels = {cold_start:'冷启动', exponential_smoothing:'指数平滑', blended:'混合模式', gru:'GRU预测'};
+  $('wmModeBadge').textContent = modeLabels[wm.mode] || wm.mode;
+  $('wmModeBadge').className = 'badge' + (wm.mode === 'gru' ? '' : ' warn');
+
+  // Current sensor values (from main status)
+  // Predictions
+  const channels = ['temp', 'humi', 'soil', 'light'];
+  channels.forEach(ch => {
+    if (wm.predictions[ch]) {
+      [15, 30, 60].forEach(h => {
+        const el = $('wm_' + ch + '_' + h);
+        if (el) el.textContent = fmt(wm.predictions[ch][h.toString()], 1);
+      });
+    }
+  });
+
+  // Risk
+  const riskBox = $('wmRiskBox');
+  if (wm.soilRisk) {
+    const levels = {15:'high', 30:'medium', 60:'low'};
+    const labels = {15:'紧迫', 30:'预警', 60:'远期'};
+    riskBox.className = 'pred-risk ' + (levels[wm.riskHorizon] || 'low');
+    riskBox.textContent = `土壤湿度预测偏低 (${labels[wm.riskHorizon] || '--'}) - 风险评分: ${fmt(wm.riskScore*100, 0)}%`;
+  } else {
+    riskBox.className = 'pred-risk low';
+    riskBox.textContent = '环境预测正常 - 无灌溉风险';
+  }
+
+  // Meta
+  $('wmMode').textContent = modeLabels[wm.mode] || wm.mode;
+  if (wm.model) {
+    $('wmTrainSteps').textContent = wm.model.trainingSteps || 0;
+    $('wmLoss').textContent = wm.model.avgLoss > 0 ? fmt(wm.model.avgLoss, 4) : '--';
+    $('wmBuffer').textContent = wm.model.bufferMinutes || 0;
+  }
+}
+
+// Main refresh loop
+async function refresh() {
+  const data = await api('/api/status');
+  if (!data) {
+    $('connDot').className = 'status-dot err';
+    $('connText').textContent = '连接失败';
+    return;
+  }
+  $('connDot').className = 'status-dot ok';
+  $('connText').textContent = '已连接';
+  tick++;
+  $('uptimeText').textContent = `刷新 #${tick}`;
+
+  updateSensors(data.sensors);
+
+  if (data.modules) {
+    updateFusion(data.modules.fusion);
+    updatePlantDoctor(data.modules.plantDoctor);
+    // Update current values for world model cards
+    if (data.sensors) {
+      $('wm_cur_temp').textContent = fmt(data.sensors.airTemp);
+      $('wm_cur_humi').textContent = fmt(data.sensors.airHumi);
+      $('wm_cur_soil').textContent = fmt(data.sensors.soilHumi);
+      $('wm_cur_light').textContent = fmt(data.sensors.lightValue, 0);
+    }
+    updateWorldModel(data.modules.worldModel);
+  }
+
+  // Fetch detection history
+  const history = await api('/api/plant/history');
+  if (history) updateHistory(history);
+}
+
+// Init
+updateCamera();
+refresh();
+setInterval(refresh, 3000);
+setInterval(() => { if (cameraRetry > 0 && cameraRetry < 10) updateCamera(); }, 10000);
+</script>
+</body>
+</html>
