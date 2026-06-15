@@ -230,16 +230,17 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     # 确定摄像头参数: --rtsp > --camera > pin_config默认
+    _pins = PinConfig()
     if args.rtsp:
         camera_id = args.rtsp
     elif args.camera is not None:
-        # --camera 可以是数字(ID)或RTSP URL
+        # --camera 可以是数字(ID)或RTSP/HTTP URL
         try:
             camera_id = int(args.camera)
         except ValueError:
             camera_id = args.camera
     else:
-        camera_id = 0
+        camera_id = _pins.camera_id
 
     app = SmartAgricultureApp(
         hw_profile=args.profile,
