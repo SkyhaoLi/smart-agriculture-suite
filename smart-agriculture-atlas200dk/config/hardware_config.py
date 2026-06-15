@@ -124,9 +124,6 @@ class PinConfig:
     soil_adc_chip: str = "/dev/iio:device0"  # 土壤湿度 ADC (需外接ADC模块, Atlas无原生ADC)
     soil_adc_channel: int = 0
 
-    liquid_adc_chip: str = "/dev/iio:device1"  # 液位 ADC
-    liquid_adc_channel: int = 1
-
     i2c_bus: int = 7           # I2C7 (Pin3/Pin5), 用于BH1750和OLED
     bh1750_addr: int = 0x23   # BH1750 I2C地址
     oled_addr: int = 0x3C     # SSD1306 I2C地址
@@ -153,12 +150,9 @@ class ADCConfig:
     adc_i2c_bus: int = 6       # I2C6 (Pin27/Pin28)
     adc_addr: int = 0x48       # ADS1115 默认地址
     soil_channel: int = 0      # ADS1115 A0 -> 土壤湿度
-    liquid_channel: int = 1    # ADS1115 A1 -> 液位
     adc_gain: int = 4096       # ADS1115 PGA = ±4.096V
     soil_adc_dry: int = 32000  # 土壤干时ADC值 (16-bit)
     soil_adc_wet: int = 12000  # 土壤湿时ADC值
-    liquid_adc_empty: int = 5000    # 液位空时ADC值
-    liquid_adc_full: int = 30000   # 液位满时ADC值
 
 
 # ============================================================================
@@ -175,7 +169,6 @@ class SystemConfig:
     air_humi_night_low: float = 50.0
     soil_humi_low: float = 30.0
     soil_humi_high: float = 70.0
-    liquid_level_warn: float = 15.0
 
     # 学习模块
     learning_enabled: bool = True

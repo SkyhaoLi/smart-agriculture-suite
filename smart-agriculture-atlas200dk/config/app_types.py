@@ -99,7 +99,7 @@ class GrowthStage(IntEnum):
 # ============================================================================
 @dataclass
 class SensorSnapshot:
-    """五路传感器数据快照"""
+    """四路传感器数据快照"""
     air_temp: float = 0.0          # 空气温度 (°C)
     air_humi: float = 0.0          # 空气湿度 (%)
     soil_humi: float = 0.0         # 土壤湿度 (%)
