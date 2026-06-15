@@ -37,13 +37,15 @@
 | **Atlas 200I DK A2** | Python | 华为昇腾开发板部署，NPU加速推理 |
 | **PC模拟器** | Python / Flask | 无硬件开发调试，功能演示 |
 
-系统集成6大AI模块：
+系统集成8大AI模块：
 1. **规则灌溉引擎** — 日夜分时阈值判断
 2. **Q-Learning 强化学习** — 900状态×4动作，在线学习最优灌溉策略
 3. **卡尔曼滤波 + 神经网络融合** — 5通道传感器数据融合
 4. **3层异常检测** — 均值/Z-Score/Isolation Forest
 5. **GDD作物生长预测** — 积温模型追踪生长阶段
 6. **ONNX 植物病害识别** — CNN模型，5类草莓病害
+7. **MobileNetV2 特征匹配** — 1280维特征向量，余弦相似度匹配，跨作物23类病害泛化识别
+8. **GRU 环境状态预测** — 纯NumPy实现，预测未来15/30/60分钟的气温、气湿、土湿、光照
 
 ---
 
@@ -246,11 +248,12 @@ python run.py --time-scale 3600 --no-browser
 
 #### 8. 植物医生 (Plant Doctor)
 - 病害检测开关和自动检测开关
-- **上传图片检测** — 选择草莓叶片图片进行病害识别
+- **上传图片检测** — 选择叶片图片进行病害识别
 - **Grad-CAM热力图** — 显示模型关注区域（遮挡敏感度方法）
-- 检测结果（病害名称、置信度、治疗建议）
+- **综合识别** — 原始CNN模型 + MobileNetV2特征匹配，自动选择最佳结果
+- 检测结果（作物名称、病害名称、置信度、治疗建议）
 - 检测历史记录
-- 5类病害：健康、叶斑病、白粉病、灰霉病、炭疽病
+- 支持8种作物23类病害：番茄(10类)、马铃薯(3类)、玉米(4类)、葡萄(4类)、苹果(4类)、桃(2类)、辣椒(2类)、草莓(2类)
 
 #### 9. 系统配置 (Config)
 - 模块开关（规则引擎、Q-Learning自动、融合自动、植物医生）
@@ -354,11 +357,19 @@ sudo systemctl start agri-atlas
 
 ### 植物病害模型训练
 
-训练草莓叶片病害分类模型（5类：健康、草莓炭疽病、草莓灰霉病、草莓叶焦病、草莓白粉病）。
+训练植物叶片病害分类模型。
 
-模型训练工具已集成到项目中。训练完成后将ONNX模型放置到 `smart-agriculture-atlas200dk/models/` 目录即可使用。
+**原始CNN模型**（5类草莓病害）：
+- 模型架构：Conv2D(32) → Conv2D(64) → Conv2D(64) → Dense(64) → Dense(5)，输入96×96×3 RGB
+- 训练完成后将ONNX模型放置到 `smart-agriculture-atlas200dk/models/` 目录即可使用
 
-模型架构：Conv2D(32) → Conv2D(64) → Conv2D(64) → Dense(64) → Dense(5)，输入96×96×3 RGB。
+**MobileNetV2特征匹配**（23类跨作物病害）：
+- 使用预训练MobileNetV2提取1280维特征向量
+- 通过余弦相似度匹配特征库中的已知病害
+- 特征库支持在线注册新病害（小样本学习）
+- 构建特征库：`python disease_feature_extractor.py <model_path> <dataset_dir> [output_path]`
+
+**综合识别逻辑**：当原始CNN模型置信度 < 50% 且特征匹配有结果时，使用特征匹配结果作为最终诊断。
 
 Atlas版支持三种推理引擎（按优先级自动选择）：
 1. **ACL NPU** — 华为昇腾NPU加速推理（推荐）
@@ -492,6 +503,14 @@ python federated_learning.py --devices 10 --rounds 20 --hours 48
 | GET | `/api/plant/capture` | 拍照检测（Atlas用摄像头，模拟器返回503） |
 | POST | `/api/plant/config` | 配置植物医生参数 |
 
+### 环境状态预测（世界模型）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/worldmodel/status` | 世界模型状态（预测值、置信度、训练信息） |
+| GET | `/api/worldmodel/history` | 历史传感器数据 |
+| POST | `/api/worldmodel/config` | 配置世界模型参数 |
+
 ### 模拟器专属
 
 | 方法 | 路径 | 说明 |
@@ -543,9 +562,12 @@ curl -X POST http://localhost:5000/api/system/factory-reset
 |------|-----|------|
 | ONNX 病害推理总耗时 | ~50–150 ms | 含相机采集+预处理+推理 |
 | ACL NPU 推理 | ~10–30 ms | INT8量化模型，NPU加速 |
+| MobileNetV2 特征提取 | ~100–200 ms | 1280维特征向量+余弦相似度匹配 |
 | 融合NN单次前向 | <1 ms | 5→8→3全连接，75个float参数 |
 | Q-Learning一步更新 | <0.1 ms | 900×4 Q-Table，单次查表+更新 |
 | Isolation Forest单次评分 | ~1–3 ms | 10棵树，深度8 |
+| GRU 推理 60步 | ~0.2 ms | 纯NumPy实现，1220个参数 |
+| GRU 训练一步 | ~5 ms | batch=8, seq_len=15 |
 
 ### 内存占用
 
@@ -554,6 +576,9 @@ curl -X POST http://localhost:5000/api/system/factory-reset
 | Q-Table内存 | 14.4 KB (900×4×4 bytes) |
 | Isolation Forest内存 | ~25 KB (10棵树) |
 | 融合网络权重 | ~0.3 KB (75个float参数) |
+| 特征库内存 | ~900 KB (23类×184条×1280维) |
+| GRU 参数 | ~5 KB (1220个float32) |
+| 传感器缓冲区 | ~29 KB (1440分钟×5维) |
 
 ### 时序参数
 
