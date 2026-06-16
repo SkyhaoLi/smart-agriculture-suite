@@ -42,7 +42,7 @@ class LearningConfig:
     time_bins: int = 3
 
 
-ACTION_DURATIONS = [0, 30, 60, 120]  # Off, Low, Moderate, Heavy (秒)
+ACTION_DURATIONS = [0, 30, 45, 120]  # Off, Low, Moderate, Heavy (秒)
 ACTION_NAMES = ["off", "low", "medium", "high"]
 
 
@@ -109,7 +109,7 @@ class LearningModule:
 
         # 检查是否需要做决策
         if (not self._config.auto_control_enabled or
-                not actuator.status.valve_on == actuator.status.valve_on or  # auto_mode check
+                not actuator._auto_mode or
                 actuator.is_busy(now)):
             return None
 

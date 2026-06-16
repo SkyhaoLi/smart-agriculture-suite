@@ -270,6 +270,14 @@ class GrowthModule:
                 self._predicted_maturity_day = self._current_day
         else:
             avg_gdd_per_day = max(0.0, self._latest_snapshot.air_temp - crop.base_temp)
+            # 回退: 用历史平均GDD率 (避免温度暂时低于base_temp时预测为None)
+            if avg_gdd_per_day <= 0 and self._cumulative_gdd > 0:
+                if self._current_day > 0:
+                    avg_gdd_per_day = self._cumulative_gdd / self._current_day
+                elif self._last_update_time > 0 and self._day_started_at > 0:
+                    elapsed_hours = (self._last_update_time - self._day_started_at) / 3600.0
+                    if elapsed_hours > 0.1:
+                        avg_gdd_per_day = self._cumulative_gdd / elapsed_hours * 24.0
             if avg_gdd_per_day > 0:
                 self._predicted_flowering_day = (
                     self._current_day + int((flowering_gdd - self._cumulative_gdd) / avg_gdd_per_day)

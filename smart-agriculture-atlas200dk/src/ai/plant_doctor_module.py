@@ -184,33 +184,45 @@ class PlantDoctorModule:
         feature_matches = self.match_disease(frame)
         self._last_feature_matches = feature_matches
 
-        # 3. 综合判断: 如果原模型置信度低，用特征匹配结果
+        # 3. 综合判断: 如果原模型置信度低且有特征匹配结果, 使用特征匹配
+        final_disease_id = disease_id
+        final_confidence = confidence
         if confidence < 0.5 and feature_matches:
             best_match = feature_matches[0]
+            match_name = best_match.get("disease", "")
+            for i, label in enumerate(DISEASE_LABELS_CN):
+                if label in match_name or match_name in label:
+                    final_disease_id = i
+                    final_confidence = best_match["similarity"]
+                    break
+            else:
+                if "健康" not in match_name and best_match["similarity"] > 0.5:
+                    final_disease_id = 1
+                    final_confidence = best_match["similarity"]
             logger.info(f"原模型置信度低({confidence:.2f}), "
-                        f"特征匹配: {best_match['disease']} ({best_match['similarity']:.2f})")
+                        f"特征匹配: {match_name} ({final_confidence:.2f})")
 
-        self._last_disease_id = disease_id
-        self._last_confidence = confidence
+        self._last_disease_id = final_disease_id
+        self._last_confidence = final_confidence
         self._last_all_probs = confidences.tolist()
         self._last_detection_time = time.time()
         self._total_detections += 1
 
         # 记录历史
-        self._add_to_history(disease_id, confidence)
+        self._add_to_history(final_disease_id, final_confidence)
 
         # 病害告警
-        if disease_id > 0 and confidence >= self._confidence_threshold:
+        if final_disease_id > 0 and final_confidence >= self._confidence_threshold:
             self._disease_detections += 1
             self._trigger_alarm()
 
         elapsed = (time.time() - start) * 1000
         logger.info(f"图片检测完成 {elapsed:.0f}ms -> "
-                     f"{DISEASE_LABELS_CN[disease_id]} ({confidence * 100:.1f}%)")
+                     f"{DISEASE_LABELS_CN[final_disease_id]} ({final_confidence * 100:.1f}%)")
 
         return DiseaseResult(
-            disease_class=DiseaseClass(disease_id),
-            confidence=confidence,
+            disease_class=DiseaseClass(final_disease_id),
+            confidence=final_confidence,
             all_probs=confidences.tolist(),
             timestamp=time.time(),
         )
@@ -413,17 +425,37 @@ class PlantDoctorModule:
         else:
             logger.warning("frame is None, skipping feature matching")
 
-        self._last_disease_id = disease_id
-        self._last_confidence = confidence
+        # 5. 综合判断: 如果原模型置信度低且有特征匹配结果, 使用特征匹配
+        final_disease_id = disease_id
+        final_confidence = confidence
+        if confidence < 0.5 and feature_matches:
+            best_match = feature_matches[0]
+            # 映射特征匹配结果到disease_id
+            match_name = best_match.get("disease", "")
+            for i, label in enumerate(DISEASE_LABELS_CN):
+                if label in match_name or match_name in label:
+                    final_disease_id = i
+                    final_confidence = best_match["similarity"]
+                    break
+            else:
+                # 特征匹配发现病害但不在5类中, 标记为其他病害(id=1)
+                if "健康" not in match_name and best_match["similarity"] > 0.5:
+                    final_disease_id = 1
+                    final_confidence = best_match["similarity"]
+            logger.info(f"置信度低({confidence:.2f}), 使用特征匹配: "
+                        f"{match_name} ({final_confidence:.2f})")
+
+        self._last_disease_id = final_disease_id
+        self._last_confidence = final_confidence
         self._last_all_probs = confidences.tolist()
         self._last_detection_time = time.time()
         self._total_detections += 1
 
-        # 4. 记录历史
-        self._add_to_history(disease_id, confidence)
+        # 6. 记录历史
+        self._add_to_history(final_disease_id, final_confidence)
 
-        # 5. 病害告警
-        if disease_id > 0 and confidence >= self._confidence_threshold:
+        # 7. 病害告警
+        if final_disease_id > 0 and final_confidence >= self._confidence_threshold:
             self._disease_detections += 1
             self._trigger_alarm()
 
@@ -432,11 +464,11 @@ class PlantDoctorModule:
         if feature_matches:
             match_info = f" [特征匹配: {feature_matches[0]['disease']} {feature_matches[0]['similarity']:.2f}]"
         logger.info(f"病害检测完成 {elapsed:.0f}ms -> "
-                     f"{DISEASE_LABELS_CN[disease_id]} ({confidence * 100:.1f}%){match_info}")
+                     f"{DISEASE_LABELS_CN[final_disease_id]} ({final_confidence * 100:.1f}%){match_info}")
 
         return DiseaseResult(
-            disease_class=DiseaseClass(disease_id),
-            confidence=confidence,
+            disease_class=DiseaseClass(final_disease_id),
+            confidence=final_confidence,
             all_probs=confidences.tolist(),
             timestamp=time.time(),
         )
@@ -502,9 +534,10 @@ class PlantDoctorModule:
             input_name = self._inference_engine.get_inputs()[0].name
             output = self._inference_engine.run(None, {input_name: image})
             probs = output[0][0]
-            # Softmax (如果模型输出不是概率)
-            exp_vals = np.exp(probs - np.max(probs))
-            probs = exp_vals / exp_vals.sum()
+            # 仅当输出不是概率时才做softmax (检查sum是否接近1.0)
+            if abs(float(probs.sum()) - 1.0) > 0.05:
+                exp_vals = np.exp(probs - np.max(probs))
+                probs = exp_vals / exp_vals.sum()
             return probs
         except Exception as e:
             logger.error(f"ONNX推理失败: {e}")
@@ -521,8 +554,9 @@ class PlantDoctorModule:
             self._inference_engine.setInput(blob)
             output = self._inference_engine.forward()
             probs = output.flatten()
-            exp_vals = np.exp(probs - np.max(probs))
-            probs = exp_vals / exp_vals.sum()
+            if abs(float(probs.sum()) - 1.0) > 0.05:
+                exp_vals = np.exp(probs - np.max(probs))
+                probs = exp_vals / exp_vals.sum()
             return probs
         except Exception as e:
             logger.error(f"OpenCV DNN推理失败: {e}")
@@ -560,9 +594,10 @@ class PlantDoctorModule:
             output_buffer = acl.util.ptr_to_bytes(dev_output, output_size)
             probs = np.frombuffer(output_buffer, dtype=np.float32)
 
-            # Softmax
-            exp_vals = np.exp(probs - np.max(probs))
-            probs = exp_vals / exp_vals.sum()
+            # 仅当输出不是概率时才做softmax
+            if abs(float(probs.sum()) - 1.0) > 0.05:
+                exp_vals = np.exp(probs - np.max(probs))
+                probs = exp_vals / exp_vals.sum()
 
             # 释放资源
             acl.rt.free_host(dev_buffer)

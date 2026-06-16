@@ -22,6 +22,7 @@ from config.hardware_config import PinConfig, ADCConfig, SystemConfig, Timing
 from src.sensors import SensorHub
 from src.actuators import ActuatorController
 from src.ai import IrrigationModule, AnomalyModule, GrowthModule, LearningModule, FusionModule
+from src.ai.world_model_module import WorldModelModule
 from src.ai.plant_doctor_module import PlantDoctorModule
 from src.display import DisplayModule
 from src.web import WebDashboard
@@ -57,6 +58,7 @@ class SmartAgricultureApp:
         self._growth = None
         self._learning = None
         self._fusion = None
+        self._world_model = None
         self._plant_doctor = None
         self._display = None
         self._web = None
@@ -95,6 +97,10 @@ class SmartAgricultureApp:
         self._fusion = FusionModule()
         self._fusion.begin(self._config.fusion_enabled)
 
+        # 世界模型 (环境状态预测)
+        self._world_model = WorldModelModule()
+        self._world_model.begin(self._config.fusion_enabled)
+
         # 植物病害检测
         enable_camera = self._hw_profile in (2, 3)
         self._plant_doctor = PlantDoctorModule(buzzer=self._actuator)
@@ -119,6 +125,7 @@ class SmartAgricultureApp:
             self._sensor_hub, self._actuator, self._irrigation,
             self._anomaly, self._growth, self._learning,
             self._fusion, self._plant_doctor,
+            world_model=self._world_model,
         )
 
         logger.info("所有模块初始化完成")
@@ -150,10 +157,16 @@ class SmartAgricultureApp:
             self._growth.update(self._sensor_hub.snapshot, sample_updated, now)
 
             # 6. Q-Learning
-            self._learning.update(self._sensor_hub.snapshot, sample_updated, now, self._actuator)
+            self._learning.update(self._sensor_hub.snapshot, sample_updated, now, self._actuator,
+                                  prediction_risk=self._world_model.get_prediction_risk())
 
             # 7. 传感器融合
             self._fusion.update(self._sensor_hub.snapshot, sample_updated, now, self._actuator)
+
+            # 7.5 世界模型 (环境状态预测)
+            self._world_model.update(self._sensor_hub.snapshot, sample_updated, now, self._actuator)
+            # 将预测风险传递给融合模块
+            self._fusion._prediction_boost = self._world_model.get_prediction_risk() * 10.0
 
             # 8. 植物病害检测
             self._plant_doctor.update(now, self._sensor_hub.snapshot.light_intensity)
@@ -205,6 +218,8 @@ class SmartAgricultureApp:
             self._fusion.save_network()
         if self._learning:
             self._learning._save_q_table()
+        if self._world_model:
+            self._world_model.save()
         logger.info("清理完成, 程序退出")
 
 
