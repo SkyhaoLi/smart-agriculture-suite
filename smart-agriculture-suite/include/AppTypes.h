@@ -151,10 +151,8 @@ struct WorldModelResponse {
 // ============================================================================
 struct ActuatorStatus {
     bool valveOn = false;
-    bool pumpOn = false;
     bool autoMode = true;
     bool manualValve = false;
-    bool manualPump = false;
     bool timedRunActive = false;
     unsigned long activeUntilMs = 0;
     ControlSource source = ControlSource::None;

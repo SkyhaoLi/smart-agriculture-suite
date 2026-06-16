@@ -12,8 +12,6 @@ public:
     void begin(const PinConfig& pins);
     void setAutoMode(bool enabled) { status_.autoMode = enabled; }
     void setManualValve(bool on);
-    void setManualPump(bool on);
-    void setManualCombined(bool on);
     bool startTimedRun(ControlSource source, int durationSec, unsigned long nowMs);
     void stopTimedRun();
     void update(bool baseAutoRequest, unsigned long nowMs);
@@ -24,7 +22,7 @@ public:
 private:
     void initBts7960Pin(int rpwM, int lpwM, int rEn, int lEn);
     void driveBts7960(int rpwM, int lpwM, int rEn, int lEn, bool on, int speed = 255);
-    void applyOutputs(bool valveOn, bool pumpOn, ControlSource source, unsigned long untilMs);
+    void applyOutputs(bool valveOn, ControlSource source, unsigned long untilMs);
 
     PinConfig pins_{};
     ActuatorStatus status_{};

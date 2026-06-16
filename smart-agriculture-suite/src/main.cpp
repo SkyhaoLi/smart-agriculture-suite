@@ -141,7 +141,7 @@ void updateDisplay(unsigned long nowMs) {
         case 1: {
             // 执行器状态
             gDisplay.println("=== Actuator ===");
-            gDisplay.printf("Valve:%s Pump:%s\n", act.valveOn ? "ON" : "OFF", act.pumpOn ? "ON" : "OFF");
+            gDisplay.printf("Valve: %s\n", act.valveOn ? "ON" : "OFF");
             gDisplay.printf("Mode: %s\n", act.autoMode ? "AUTO" : "MANUAL");
             gDisplay.printf("Src:  %s\n", controlSourceName(act.source));
             if (act.timedRunActive) {
@@ -184,7 +184,7 @@ void updateDisplay(unsigned long nowMs) {
 // HTTP API路由
 // ============================================================================
 void handleStatus() {
-    StaticJsonDocument<1024> doc;
+    JsonDocument doc;
     const auto& snap = gSensors.snapshot();
     const auto& act = gActuator.status();
 
@@ -199,22 +199,21 @@ void handleStatus() {
     doc["crop_id"] = gGrowth.currentCropIndex();
 
     // 故障状态
-    JsonObject faults = doc.createNestedObject("faults");
+    JsonObject faults = doc["faults"].to<JsonObject>();
     faults["air"] = snap.fault.airFault();
     faults["soil"] = snap.fault.soilFault();
     faults["light"] = snap.fault.lightFault();
 
     // 执行器
-    JsonObject actObj = doc.createNestedObject("actuator");
+    JsonObject actObj = doc["actuator"].to<JsonObject>();
     actObj["valve_on"] = act.valveOn;
-    actObj["pump_on"] = act.pumpOn;
     actObj["auto_mode"] = act.autoMode;
     actObj["source"] = controlSourceName(act.source);
     actObj["timed_active"] = act.timedRunActive;
 
     // 世界模型
     if (gLastResponse.valid) {
-        JsonObject wm = doc.createNestedObject("world_model");
+        JsonObject wm = doc["world_model"].to<JsonObject>();
         wm["disease_id"] = gLastResponse.diseaseId;
         wm["disease_name"] = gLastResponse.diseaseName;
         wm["disease_confidence"] = gLastResponse.diseaseConfidence;
@@ -230,7 +229,7 @@ void handleStatus() {
     }
 
     // 生长
-    JsonObject grow = doc.createNestedObject("growth");
+    JsonObject grow = doc["growth"].to<JsonObject>();
     gGrowth.writeStatus(grow);
 
     String out;
@@ -240,25 +239,16 @@ void handleStatus() {
 
 void handleIrrigationMode() {
     if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-    StaticJsonDocument<128> doc;
+    JsonDocument doc;
     deserializeJson(doc, gServer.arg("plain"));
     bool autoMode = doc["auto"] | true;
     gActuator.setAutoMode(autoMode);
     gServer.send(200, "application/json", "{\"ok\":true}");
 }
 
-void handleManualPump() {
-    if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-    StaticJsonDocument<64> doc;
-    deserializeJson(doc, gServer.arg("plain"));
-    bool on = doc["on"] | false;
-    gActuator.setManualPump(on);
-    gServer.send(200, "application/json", "{\"ok\":true}");
-}
-
 void handleIrrigationConfig() {
     if (gServer.method() == HTTP_GET) {
-        StaticJsonDocument<256> doc;
+        JsonDocument doc;
         const auto& c = gConfig.irrigation;
         doc["day_temp"] = c.dayAirTempThreshold;
         doc["day_humi"] = c.dayAirHumiThreshold;
@@ -271,7 +261,7 @@ void handleIrrigationConfig() {
         gServer.send(200, "application/json", out);
     } else {
         if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-        StaticJsonDocument<256> doc;
+        JsonDocument doc;
         deserializeJson(doc, gServer.arg("plain"));
         auto& c = gConfig.irrigation;
         c.dayAirTempThreshold = doc["day_temp"] | c.dayAirTempThreshold;
@@ -286,7 +276,7 @@ void handleIrrigationConfig() {
 
 void handleAtlasConfig() {
     if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-    StaticJsonDocument<128> doc;
+    JsonDocument doc;
     deserializeJson(doc, gServer.arg("plain"));
     const char* host = doc["host"] | "";
     uint16_t port = doc["port"] | 8080;
@@ -302,7 +292,7 @@ void handleAtlasConfig() {
 
 void handleGrowthCrop() {
     if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-    StaticJsonDocument<64> doc;
+    JsonDocument doc;
     deserializeJson(doc, gServer.arg("plain"));
     uint8_t crop = doc["crop"] | 0;
     gGrowth.setCrop(crop);
@@ -316,7 +306,7 @@ void handleGrowthReset() {
 
 void handleWifi() {
     if (!gServer.hasArg("plain")) { gServer.send(400, "text/plain", "missing body"); return; }
-    StaticJsonDocument<128> doc;
+    JsonDocument doc;
     deserializeJson(doc, gServer.arg("plain"));
     const char* ssid = doc["ssid"] | "";
     const char* pass = doc["pass"] | "";
@@ -335,7 +325,6 @@ void registerRoutes() {
     });
     gServer.on("/api/status", HTTP_GET, handleStatus);
     gServer.on("/api/irrigation/mode", HTTP_POST, handleIrrigationMode);
-    gServer.on("/api/irrigation/pump", HTTP_POST, handleManualPump);
     gServer.on("/api/irrigation/config", HTTP_ANY, handleIrrigationConfig);
     gServer.on("/api/atlas/config", HTTP_POST, handleAtlasConfig);
     gServer.on("/api/growth/crop", HTTP_POST, handleGrowthCrop);

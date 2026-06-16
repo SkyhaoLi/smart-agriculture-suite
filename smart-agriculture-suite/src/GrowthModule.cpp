@@ -106,9 +106,9 @@ void GrowthModule::saveState() {
     prefs_.putInt("day", currentDayOfGrowth_);
 }
 
-void GrowthModule::writeStatus(JsonDocument& doc) const {
-    doc["crop"] = cropName(currentCrop());
-    doc["crop_cn"] = cropNameCn(currentCrop());
+void GrowthModule::writeStatus(JsonObject doc) const {
+    doc["crop"] = cropName((CropType)currentCropIndex_);
+    doc["crop_cn"] = cropNameCn((CropType)currentCropIndex_);
     doc["stage"] = stageName(currentStage_);
     doc["stage_cn"] = stageNameCn(currentStage_);
     doc["day"] = currentDayOfGrowth_;

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <ArduinoJson.h>
 
 #include "AppTypes.h"
 
@@ -33,7 +34,7 @@ public:
     float yieldScore() const { return yieldScore_; }
     String irrigationAdvice() const;
 
-    void writeStatus(JsonDocument& doc) const;
+    void writeStatus(JsonObject doc) const;
 
     static const char* stageName(GrowthStage s) { return agri::stageName(s); }
     static const char* stageNameCn(GrowthStage s) { return agri::stageNameCn(s); }
