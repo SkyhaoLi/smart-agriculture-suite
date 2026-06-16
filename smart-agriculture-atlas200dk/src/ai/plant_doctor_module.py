@@ -184,23 +184,24 @@ class PlantDoctorModule:
         feature_matches = self.match_disease(frame)
         self._last_feature_matches = feature_matches
 
-        # 3. 综合判断: 如果原模型置信度低且有特征匹配结果, 使用特征匹配
+        # 3. 综合判断: 特征匹配优先 (主模型仅5类草莓, 特征匹配38类多作物)
         final_disease_id = disease_id
         final_confidence = confidence
-        if confidence < 0.5 and feature_matches:
+        if feature_matches:
             best_match = feature_matches[0]
             match_name = best_match.get("disease", "")
-            for i, label in enumerate(DISEASE_LABELS_CN):
-                if label in match_name or match_name in label:
-                    final_disease_id = i
-                    final_confidence = best_match["similarity"]
-                    break
-            else:
-                if "健康" not in match_name and best_match["similarity"] > 0.5:
-                    final_disease_id = 1
-                    final_confidence = best_match["similarity"]
-            logger.info(f"原模型置信度低({confidence:.2f}), "
-                        f"特征匹配: {match_name} ({final_confidence:.2f})")
+            if "健康" not in match_name or disease_id == 0:
+                for i, label in enumerate(DISEASE_LABELS_CN):
+                    if label in match_name or match_name in label:
+                        final_disease_id = i
+                        final_confidence = best_match["similarity"]
+                        break
+                else:
+                    if "健康" not in match_name:
+                        final_disease_id = 1
+                        final_confidence = best_match["similarity"]
+                logger.info(f"特征匹配优先: {match_name} ({final_confidence:.2f}), "
+                            f"原模型: {DISEASE_LABELS_CN[disease_id]} ({confidence:.2f})")
 
         self._last_disease_id = final_disease_id
         self._last_confidence = final_confidence
@@ -425,25 +426,25 @@ class PlantDoctorModule:
         else:
             logger.warning("frame is None, skipping feature matching")
 
-        # 5. 综合判断: 如果原模型置信度低且有特征匹配结果, 使用特征匹配
+        # 5. 综合判断: 特征匹配优先 (主模型仅5类草莓, 特征匹配38类多作物)
         final_disease_id = disease_id
         final_confidence = confidence
-        if confidence < 0.5 and feature_matches:
+        if feature_matches:
             best_match = feature_matches[0]
-            # 映射特征匹配结果到disease_id
             match_name = best_match.get("disease", "")
-            for i, label in enumerate(DISEASE_LABELS_CN):
-                if label in match_name or match_name in label:
-                    final_disease_id = i
-                    final_confidence = best_match["similarity"]
-                    break
-            else:
-                # 特征匹配发现病害但不在5类中, 标记为其他病害(id=1)
-                if "健康" not in match_name and best_match["similarity"] > 0.5:
-                    final_disease_id = 1
-                    final_confidence = best_match["similarity"]
-            logger.info(f"置信度低({confidence:.2f}), 使用特征匹配: "
-                        f"{match_name} ({final_confidence:.2f})")
+            # 特征匹配发现非健康状态时优先使用
+            if "健康" not in match_name or disease_id == 0:
+                for i, label in enumerate(DISEASE_LABELS_CN):
+                    if label in match_name or match_name in label:
+                        final_disease_id = i
+                        final_confidence = best_match["similarity"]
+                        break
+                else:
+                    if "健康" not in match_name:
+                        final_disease_id = 1
+                        final_confidence = best_match["similarity"]
+                logger.info(f"特征匹配优先: {match_name} ({final_confidence:.2f}), "
+                            f"原模型: {DISEASE_LABELS_CN[disease_id]} ({confidence:.2f})")
 
         self._last_disease_id = final_disease_id
         self._last_confidence = final_confidence
@@ -633,26 +634,25 @@ class PlantDoctorModule:
         return self._model_loaded
 
     def to_dict(self) -> dict:
-        # 综合判断: 如果原模型置信度低且有特征匹配结果，使用特征匹配
+        # 综合判断: 特征匹配优先 (主模型仅5类草莓, 特征匹配38类多作物)
         final_disease = DISEASE_LABELS_CN[self._last_disease_id]
         final_confidence = self._last_confidence
         final_treatment = TREATMENTS[self._last_disease_id]
         final_crop = "草莓"  # 默认作物
 
-        if self._last_confidence < 0.5 and self._last_feature_matches:
+        if self._last_feature_matches:
             best_match = self._last_feature_matches[0]
-            final_disease = best_match["disease"]
-            final_confidence = best_match["similarity"]
-            final_treatment = best_match.get("treatment", "")
-            # 从病害名称提取作物
-            if "___" in best_match.get("source", ""):
-                final_crop = best_match["source"].split("___")[0]
-            else:
-                # 从病害中文名推断作物
-                for crop_name in ["番茄", "马铃薯", "玉米", "葡萄", "苹果", "桃", "辣椒", "草莓"]:
-                    if crop_name in final_disease:
-                        final_crop = crop_name
-                        break
+            # 特征匹配发现非健康状态时, 优先使用特征匹配结果
+            if "健康" not in best_match["disease"] or self._last_disease_id == 0:
+                final_disease = best_match["disease"]
+                final_confidence = best_match["similarity"]
+                final_treatment = best_match.get("treatment", "")
+            # 从病害名称推断作物
+            for crop_name in ["番茄", "马铃薯", "玉米", "葡萄", "苹果", "桃", "辣椒", "草莓",
+                              "蓝莓", "樱桃", "柑橘", "树莓", "大豆", "南瓜"]:
+                if crop_name in final_disease:
+                    final_crop = crop_name
+                    break
 
         result = {
             "enabled": self._enabled,

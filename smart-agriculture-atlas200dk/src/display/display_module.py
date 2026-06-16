@@ -140,7 +140,7 @@ class DisplayModule:
             lines.append(f"Alerts: {self._anomaly.total_anomalies}")
         elif page == 3 and self._growth:  # Growth
             d = self._growth.to_dict()
-            lines.append(f"{d['cropCn']} {d['stageNameCn']}")
+            lines.append(f"{d.get('crop', d.get('cropCn', ''))} {d.get('stageName', d.get('stageNameCn', ''))}")
             lines.append(f"Day {d['dayOfGrowth']} GDD {d['cumulativeGdd']:.0f}")
             lines.append(f"Yield {d['yieldScore']:.0f}")
         elif page == 4 and self._learning and self._fusion:  # Learn/Fusion
@@ -152,7 +152,7 @@ class DisplayModule:
             d = self._plant_doctor.to_dict()
             lines.append(f"Camera: {'READY' if d['cameraReady'] else 'NA'}")
             lines.append(f"Model: {'READY' if d['modelLoaded'] else 'NA'}")
-            lines.append(f"{d['lastDiseaseNameCn']} {d['lastConfidence']:.0%}")
+            lines.append(f"{d.get('lastDiseaseName', d.get('lastDiseaseNameCn', ''))} {d['lastConfidence']:.0%}")
 
         # 清屏 + 输出 (终端模式直接打印)
         print(f"\033[2J\033[H" + "\n".join(lines), end="", flush=True)
