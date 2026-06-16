@@ -9,4 +9,3 @@ build/
 data/config.json
 data/*.log
 models/*.om
-models/*.onnx
