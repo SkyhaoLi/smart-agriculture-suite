@@ -167,8 +167,8 @@ void updateDisplay(unsigned long nowMs) {
         case 3: {
             // 生长状态
             gDisplay.println("=== Growth ===");
-            gDisplay.printf("Crop: %s\n", cropNameCn((CropType)gGrowth.currentCropIndex()));
-            gDisplay.printf("Stage: %s\n", stageNameCn(gGrowth.currentStage()));
+            gDisplay.printf("Crop: %s\n", cropName((CropType)gGrowth.currentCropIndex()));
+            gDisplay.printf("Stage: %s\n", stageName(gGrowth.currentStage()));
             gDisplay.printf("Day: %d\n", gGrowth.currentDayOfGrowth());
             gDisplay.printf("GDD: %.1f\n", gGrowth.cumulativeGdd());
             gDisplay.printf("Yield: %.0f\n", gGrowth.yieldScore());
