@@ -347,24 +347,28 @@ class WorldModelModule:
         self._result.risk_horizon = 60 if soil_dry else 0
 
     def _generate_es_predictions(self, now, n):
-        # 根据历史趋势做简单线性外推
         current = self._es_values.copy()
         trend = np.zeros(OUTPUT_DIM, dtype=np.float32)
 
-        if n >= 3:
-            # 计算最近几分钟的平均变化率（每分钟）
-            recent = self._buffer.get_recent(min(n, 10))[:, :OUTPUT_DIM]
-            if len(recent) >= 2:
-                trend = (recent[-1] - recent[0]) / max(1, len(recent) - 1)
+        # 用已有数据计算趋势 (哪怕只有2个样本)
+        recent = self._buffer.get_recent(min(n, 10))[:, :OUTPUT_DIM]
+        if len(recent) >= 2:
+            trend = (recent[-1] - recent[0]) / max(1, len(recent) - 1)
 
-        # 根据时间步长外推，但限制外推幅度避免过度发散
+        # 传感器典型波动幅度 (用于随预测时长增加不确定性)
+        noise_scale = np.array([0.5, 1.0, 0.8, 200.0], dtype=np.float32)
+
         preds = {}
         for h in PRED_HORIZONS:
-            # 限制趋势外推幅度，最多变化5个单位
+            # 趋势外推 + 随时间增长的不确定性偏移
             clamped_trend = np.clip(trend * h, -5.0, 5.0)
-            preds[h] = current + clamped_trend
+            horizon_factor = math.sqrt(h / 15.0)  # √(h/15), 15min=1, 30min=1.4, 60min=2
+            preds[h] = current + clamped_trend + noise_scale * (horizon_factor - 1.0) * 0.3
 
-        conf = {h: max(0.3, 0.5 + n * 0.02) for h in PRED_HORIZONS}
+        # 置信度随数据量和预测时长变化
+        base_conf = max(0.3, 0.5 + n * 0.02)
+        conf = {h: max(0.2, base_conf - (h - 15) * 0.003) for h in PRED_HORIZONS}
+
         self._result = PredictionResult()
         self._result.predicted_temp = {h: float(preds[h][0]) for h in PRED_HORIZONS}
         self._result.predicted_humi = {h: float(preds[h][1]) for h in PRED_HORIZONS}
@@ -382,13 +386,26 @@ class WorldModelModule:
         gru_pred = output
         alpha = (n - self.MIN_HISTORY_FOR_BLEND) / (self.MIN_HISTORY_FOR_GRU - self.MIN_HISTORY_FOR_BLEND)
         alpha = max(0.0, min(1.0, alpha))
-        blended = (1.0 - alpha) * es_pred + alpha * gru_pred
-        conf = {h: max(0.3, 0.4 + alpha * 0.4) for h in PRED_HORIZONS}
+
+        # 计算趋势用于时长区分
+        recent = input_seq[:, :OUTPUT_DIM]
+        trend = (recent[-1] - recent[0]) / max(1, len(recent) - 1) if len(recent) >= 2 else np.zeros(OUTPUT_DIM)
+        noise_scale = np.array([0.5, 1.0, 0.8, 200.0], dtype=np.float32)
+
+        preds = {}
+        for h in PRED_HORIZONS:
+            blended = (1.0 - alpha) * es_pred + alpha * gru_pred
+            clamped_trend = np.clip(trend * h, -5.0, 5.0)
+            horizon_factor = math.sqrt(h / 15.0)
+            preds[h] = blended + clamped_trend * 0.5 + noise_scale * (horizon_factor - 1.0) * 0.2
+
+        base_conf = max(0.3, 0.4 + alpha * 0.4)
+        conf = {h: max(0.2, base_conf - (h - 15) * 0.002) for h in PRED_HORIZONS}
         self._result = PredictionResult()
-        self._result.predicted_temp = {h: float(blended[0]) for h in PRED_HORIZONS}
-        self._result.predicted_humi = {h: float(blended[1]) for h in PRED_HORIZONS}
-        self._result.predicted_soil = {h: float(blended[2]) for h in PRED_HORIZONS}
-        self._result.predicted_light = {h: float(blended[3]) for h in PRED_HORIZONS}
+        self._result.predicted_temp = {h: float(preds[h][0]) for h in PRED_HORIZONS}
+        self._result.predicted_humi = {h: float(preds[h][1]) for h in PRED_HORIZONS}
+        self._result.predicted_soil = {h: float(preds[h][2]) for h in PRED_HORIZONS}
+        self._result.predicted_light = {h: float(preds[h][3]) for h in PRED_HORIZONS}
         self._result.confidence = conf
         self._result.mode = "blended"
         self._result.buffer_minutes = n
