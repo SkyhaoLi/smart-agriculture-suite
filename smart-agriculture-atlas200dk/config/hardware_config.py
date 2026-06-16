@@ -234,7 +234,10 @@ class Timing:
 # ============================================================================
 # 运行时配置 (从JSON文件加载/保存)
 # ============================================================================
+import os as _os
+_PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+
 CONFIG_FILE = "/etc/agri-atlas/config.json"
-DATA_DIR = "/var/lib/agri-atlas"
-MODEL_DIR = "/opt/agri-atlas/models"
+DATA_DIR = _os.path.join(_PROJECT_ROOT, "data")
+MODEL_DIR = _os.path.join(_PROJECT_ROOT, "models")
 LOG_DIR = "/var/log/agri-atlas"
